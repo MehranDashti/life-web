@@ -25,6 +25,32 @@ abstract class TestCase extends BaseTestCase
     protected string $seeder = PassportClientSeeder::class;
 
     /**
+     * Refuse to run against anything but a dedicated testing database.
+     *
+     * RefreshDatabase truncates every table, so pointing the suite at a
+     * development schema destroys data. That is not hypothetical: docker-compose
+     * loads .env through env_file, and a real environment variable beats
+     * .env.testing — so an in-container run silently resolved to the development
+     * database until the Makefile started overriding it. This catches every future
+     * variant of the same mistake.
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $connection = (string) config('database.default');
+        $database = (string) config("database.connections.{$connection}.database");
+
+        if (! str_contains($database, 'testing')) {
+            $this->fail(
+                "Refusing to run tests against the [{$database}] database: the name must "
+                .'identify it as a testing schema. Check DB_DATABASE in the environment — '
+                .'a real environment variable overrides .env.testing.',
+            );
+        }
+    }
+
+    /**
      * The in-memory search double bound for this test, so a test can seed
      * documents and assert on histogram output without any infrastructure.
      */

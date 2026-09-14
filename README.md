@@ -614,11 +614,26 @@ secret to reach the two private `mehrand/*` packages.
 
 ### Testing
 
-**296 tests / 1,188 assertions** across Unit (100) and Feature (188), plus 8
-integration tests against a live cluster.
+**288 tests / 1,171 assertions** across Unit (100) and Feature (188), plus 8
+integration tests (17 assertions) against a live cluster — 296 in total.
+
+Test configuration lives in **`.env.testing`**, which is committed and which
+Laravel loads *instead of* `.env` whenever `APP_ENV=testing` — so it is
+self-sufficient, APP_KEY included. `phpunit.xml` sets only `APP_ENV`; anything
+duplicated there would silently win, because PHPUnit sets its variables before
+Dotenv runs and Dotenv never overwrites an existing one.
+
+That same precedence is what lets one committed file serve three environments:
+the values in it target the Docker stack's forwarded ports, while CI overrides the
+database host, port and credentials through the workflow's `env:` block.
+
+Tests run on the **host**, like `lint`, `analyse` and `rector` — not inside the app
+container, whose entrypoint runs `config:cache`, and a cached config makes Laravel
+skip environment loading altogether. `make up` still has to be running, since the
+suite connects to the stack's database on its forwarded port.
 
 `SEARCH_DRIVER=fake` binds an in-memory search double in the test environment, so
-unit and feature tests need no infrastructure. Only `tests/Integration` talks to a
+unit and feature tests need no infrastructure beyond that database. Only `tests/Integration` talks to a
 real cluster — it asserts the things the double cannot reproduce: the Persian
 analysis chain, the strict mapping, and the shape of a real `date_histogram`
 response. It is excluded from `make test` and from CI; run it with `make integration`.

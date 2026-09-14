@@ -28,26 +28,15 @@
     </source>
 
     <php>
+        <!--
+            APP_ENV is the ONLY variable set here, and it has to be: Laravel reads
+            it before bootstrapping to decide which env file to load, and
+            `.env.testing` is only picked up when it says `testing`.
+
+            Everything else lives in .env.testing. PHPUnit sets these before Dotenv
+            runs, and Dotenv will not overwrite an existing variable — so any value
+            duplicated here would silently win and make .env.testing decorative.
+        -->
         <env name="APP_ENV" value="testing"/>
-        <env name="APP_LOCALE" value="fa"/>
-        <env name="APP_MAINTENANCE_DRIVER" value="file"/>
-        <env name="BCRYPT_ROUNDS" value="4"/>
-
-        <!-- Only the schema is overridden. Host, port and credentials come from
-             .env locally and from the real environment in CI, so the same file
-             works against a forwarded container port and against a CI service. -->
-        <env name="DB_CONNECTION" value="mysql"/>
-        <env name="DB_DATABASE" value="lifeweb_testing"/>
-
-        <!-- The array store supports cache tags, which QueryCacheable relies on. -->
-        <env name="CACHE_STORE" value="array"/>
-        <env name="SESSION_DRIVER" value="array"/>
-        <env name="QUEUE_CONNECTION" value="sync"/>
-        <env name="MAIL_MAILER" value="array"/>
-
-        <!-- In-memory search double: unit and feature tests never need a live
-             Elasticsearch. Integration tests override this to `elasticsearch`. -->
-        <env name="SEARCH_DRIVER" value="fake"/>
-        <env name="REPORT_TIMEZONE" value="Asia/Tehran"/>
     </php>
 </phpunit>

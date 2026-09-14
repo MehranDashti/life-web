@@ -58,16 +58,26 @@ synthetic: ## Generate N synthetic posts for the benchmark (make synthetic N=100
 	$(APP) php artisan posts:synthetic $(or $(N),10000)
 
 ## ---------------------------------------------------------------------- tests
-test: unit feature ## Unit + feature suites (no infrastructure needed)
+# Tests run on the HOST, like lint/analyse/rector and the ci gate.
+#
+# Not in the app container: its entrypoint runs `config:cache`, and a cached
+# config makes Laravel skip environment loading entirely — so .env.testing is
+# never read there and DB_DATABASE stays pointed at the development schema, which
+# RefreshDatabase would truncate. Tests\TestCase refuses to run against a database
+# whose name does not identify it as a testing schema, as a second line of defence.
+#
+# They connect to the stack's forwarded ports, so `make up` still has to be running.
+
+test: unit feature ## Unit + feature suites (needs the database from `make up`)
 
 unit: ## Unit suite
-	$(APP) php artisan test --testsuite=Unit
+	php artisan test --testsuite=Unit
 
 feature: ## Feature suite
-	$(APP) php artisan test --testsuite=Feature
+	php artisan test --testsuite=Feature
 
-integration: ## Integration suite — requires a live Elasticsearch
-	$(APP) php artisan test --testsuite=Integration
+integration: ## Integration suite — also requires a live Elasticsearch
+	php artisan test --testsuite=Integration
 
 ## ------------------------------------------------------------------- quality
 lint: ## Check code style (no changes)
@@ -85,9 +95,11 @@ rector: ## Report refactors Rector would apply
 rector-fix: ## Apply Rector refactors
 	vendor/bin/rector process
 
+# Runs exactly what .github/workflows/ci.yml runs, so green here means green there.
+# The Integration suite is excluded on purpose — use `make integration` for that.
 ci: lint analyse rector ## The full gate — run before every push
 	@composer validate --strict --no-check-publish
-	php artisan test
+	php artisan test --testsuite=Unit,Feature
 
 ## ----------------------------------------------------------------- benchmark
 # DOCKER_UID/GID are passed so k6 can write its results into the bind mount.
