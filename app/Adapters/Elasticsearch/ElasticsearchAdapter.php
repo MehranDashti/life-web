@@ -9,10 +9,13 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Elastic\Elasticsearch\Client;
 use App\Adapters\Contracts\Data\BulkResult;
+use App\Exceptions\SearchUnavailableException;
 use App\Adapters\Contracts\Data\HistogramQuery;
 use App\Adapters\Contracts\Data\HistogramBucket;
 use App\Adapters\Contracts\Data\HistogramResult;
 use App\Adapters\Contracts\SearchAdapterInterface;
+use Elastic\Transport\Exception\TransportException;
+use Elastic\Elasticsearch\Exception\ElasticsearchException;
 
 /**
  * Elasticsearch implementation of the search contract.
@@ -89,47 +92,19 @@ final readonly class ElasticsearchAdapter implements SearchAdapterInterface
 
     public function dailyHistogram(HistogramQuery $query): HistogramResult
     {
-        $response = $this->client->search([
-            'index' => $this->str('alias'),
-
-            // Aggregation only. Documents are never fetched to be counted — at a
-            // million posts, paging hits to count them is several orders of
-            // magnitude slower than letting Elasticsearch aggregate.
-            'body' => [
-                'size' => 0,
-                'track_total_hits' => true,
-                'query' => $this->buildFilter($query),
-                'aggs' => [
-                    'per_day' => [
-                        'date_histogram' => [
-                            'field' => 'published_at',
-                            'calendar_interval' => (string) config('search.histogram.calendar_interval', 'day'),
-                            'time_zone' => $query->timezone,
-                            'format' => 'yyyy-MM-dd',
-                            // Days with no posts are meaningful in a histogram —
-                            // without this the report would silently skip them.
-                            'min_doc_count' => 0,
-                            'extended_bounds' => [
-                                'min' => $query->from->copy()->timezone($query->timezone)->format('Y-m-d'),
-                                'max' => $query->to->copy()->timezone($query->timezone)->format('Y-m-d'),
-                            ],
-                        ],
-                    ],
-                ],
-            ],
-        ])->asArray();
-
-        return $this->summariseHistogram($response, $query->timezone);
+        return $this->degradeGracefully(fn (): HistogramResult => $this->runHistogram($query));
     }
 
     public function count(): int
     {
-        $response = $this->client->count([
-            'index' => $this->str('alias'),
-            'ignore_unavailable' => true,
-        ])->asArray();
+        return $this->degradeGracefully(function (): int {
+            $response = $this->client->count([
+                'index' => $this->str('alias'),
+                'ignore_unavailable' => true,
+            ])->asArray();
 
-        return (int) ($response['count'] ?? 0);
+            return (int) ($response['count'] ?? 0);
+        });
     }
 
     public function refresh(): void
@@ -201,6 +176,68 @@ final readonly class ElasticsearchAdapter implements SearchAdapterInterface
         ])->asArray();
 
         return (int) Arr::get($response, '_all.total.store.size_in_bytes', 0);
+    }
+
+    /**
+     * Translate engine failures into the application's own exception at the
+     * boundary that knows about Elasticsearch.
+     *
+     * The render closure in bootstrap/app.php is a backstop for UNCAUGHT
+     * exceptions, but controllers catch Throwable and shape the response
+     * themselves — so a driver exception caught there would surface as the
+     * generic 406 rather than a 503. Translating here means the correct status
+     * travels with the exception no matter who catches it.
+     *
+     * Read-path only. ensureIndex/bulkIndex/refresh/flush are operator commands
+     * where the real driver error is the useful output.
+     *
+     * @template TValue
+     *
+     * @param  callable(): TValue  $operation
+     * @return TValue
+     */
+    private function degradeGracefully(callable $operation): mixed
+    {
+        try {
+            return $operation();
+        } catch (ElasticsearchException|TransportException $exception) {
+            throw new SearchUnavailableException($exception);
+        }
+    }
+
+    private function runHistogram(HistogramQuery $query): HistogramResult
+    {
+        $response = $this->client->search([
+            'index' => $this->str('alias'),
+
+            // Aggregation only. Documents are never fetched to be counted — at a
+            // million posts, paging hits to count them is several orders of
+            // magnitude slower than letting Elasticsearch aggregate.
+            'body' => [
+                'size' => 0,
+                'track_total_hits' => true,
+                'query' => $this->buildFilter($query),
+                'aggs' => [
+                    'per_day' => [
+                        'date_histogram' => [
+                            'field' => 'published_at',
+                            'calendar_interval' => (string) config('search.histogram.calendar_interval', 'day'),
+                            'time_zone' => $query->timezone,
+                            'format' => 'yyyy-MM-dd',
+                            // Days with no posts are meaningful in a histogram —
+                            // without this the report would silently skip them.
+                            'min_doc_count' => 0,
+                            'extended_bounds' => [
+                                'min' => $query->from->copy()->timezone($query->timezone)->format('Y-m-d'),
+                                'max' => $query->to->copy()->timezone($query->timezone)->format('Y-m-d'),
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ])->asArray();
+
+        return $this->summariseHistogram($response, $query->timezone);
     }
 
     /**

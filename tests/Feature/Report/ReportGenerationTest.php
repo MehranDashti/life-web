@@ -16,6 +16,7 @@ use App\Jobs\GenerateReportJob;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Tests\Support\ThrowingSearchAdapter;
+use App\Exceptions\SearchUnavailableException;
 use App\Adapters\Contracts\Data\HistogramBucket;
 use App\Services\Report\ReportGenerationService;
 use App\Adapters\Contracts\SearchAdapterInterface;
@@ -140,15 +141,17 @@ class ReportGenerationTest extends TestCase
         try {
             dispatch_sync(new GenerateReportJob((string) $report->id, $from->toIso8601String(), $to->toIso8601String()));
             $this->fail('The job should have rethrown so the queue can retry it.');
-        } catch (RuntimeException $exception) {
-            $this->assertSame('cluster unavailable', $exception->getMessage());
+        } catch (SearchUnavailableException $exception) {
+            // The adapter translates engine failures into the application's own
+            // type, so the queue sees a classified exception carrying a 503.
+            $this->assertSame(503, $exception->getCode());
         }
 
         $run = $report->runs()->firstOrFail();
         $report->refresh();
 
         $this->assertSame(ReportRunStatus::Failed, $run->status);
-        $this->assertStringContainsString('cluster unavailable', (string) $run->error);
+        $this->assertStringContainsString(SearchUnavailableException::class, (string) $run->error);
         $this->assertSame(1, $report->consecutive_failures);
         $this->assertTrue($scheduledFor?->equalTo($report->next_run_at), 'A failure must not skip the window.');
         Mail::assertNothingSent();
