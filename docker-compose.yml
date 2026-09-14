@@ -132,9 +132,12 @@ services:
     image: grafana/k6:latest
     container_name: lifeweb-k6
     profiles: [loadtest]
+    # k6's image runs as its own uid, which cannot write to a host-owned bind
+    # mount. Running as the invoking user lets the raw results land in the repo
+    # where they can be committed alongside the README numbers.
+    user: "${DOCKER_UID:-1000}:${DOCKER_GID:-1000}"
     environment:
       BASE_URL: http://app:8080
-      K6_OUT: json=/scripts/results/summary.json
     volumes:
       - ./loadtest:/scripts
     networks: [lifeweb]

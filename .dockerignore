@@ -7,6 +7,10 @@ storage/logs/*
 storage/framework/cache/*
 storage/framework/sessions/*
 storage/framework/views/*
+# Generated workbooks are runtime data written by the container as root; they must
+# never be baked into the image, and leaving them here breaks the build on a
+# permission error.
+storage/app/reports/*
 loadtest/results/*
 openspec
 *.md
