@@ -26,3 +26,8 @@ Thumbs.db
 /storage/app/reports/*
 !/storage/app/reports/.gitkeep
 .phpunit.cache
+
+CLAUDE.md
+AGENTS.md
+openspec
+.claude
