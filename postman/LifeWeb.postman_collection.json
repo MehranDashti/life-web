@@ -1,0 +1,514 @@
+{
+  "info": {
+    "_postman_id": "8c874d8a-58af-4bbe-a24b-438adfe98a81",
+    "name": "LifeWeb — Reporting API",
+    "description": "Periodic reporting over a Persian news corpus held in Elasticsearch.\n\n## Getting started\n\n1. Start the stack: `make build && make up && make fresh`\n2. Select the **LifeWeb Local** environment (or set `base_url` yourself).\n3. Run **Auth → Login**. The token is captured automatically into a\n   collection variable, so every other request is authorised without\n   any copy-paste.\n\n## The happy path, in order\n\n1. `Health → Health check` — confirms database, cache and search are up.\n2. `Auth → Login` — stores `access_token`.\n3. `Reports → Create report` — stores `report_id`.\n4. `Reports → List reports` — the three routes the assessment names are\n   login, create and list; everything below is extra, added so the\n   deliverable can actually be inspected.\n5. `Report runs → Run now` — generates immediately instead of waiting\n   for the scheduler. Stores `run_id`.\n6. `Report runs → Download workbook` — the Excel histogram itself.\n\n## Response envelope\n\nEvery JSON response uses the same shape:\n\n```\n{\"success\": true,  \"code\": 200, \"message\": \"…\", \"data\":  {…}}\n{\"success\": false, \"code\": 422, \"message\": \"…\", \"error\": {…}}\n```\n\nMessages are Persian by default (`APP_LOCALE=fa`).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "report_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "run_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "description": "Public liveness probe. Reports each dependency independently, because the API still serves reads when Elasticsearch is down and saying so is more useful than a single unhealthy boolean.",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/up",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "up"
+              ]
+            },
+            "description": "Returns `{status, checks: {database, cache, search}, version}`.\n\n`status` is `ok` when the database is reachable. A `false` under `checks.search` means reporting is degraded but the API is still up — start Elasticsearch with `make up`.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('reachable', () => pm.response.to.have.status(200));",
+                  "const c = pm.response.json().data.checks;",
+                  "pm.test('database is up', () => pm.expect(c.database).to.eql(true));",
+                  "if (!c.search) { console.warn('Elasticsearch is down — report generation will fail.'); }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "description": "Passport personal access tokens. The password grant was removed in Passport 13, so tokens are issued directly rather than through /oauth/token.",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Accepts a username **or** an email in the `username` field.\n\nReturns `{token_type, access_token, expires_in, user}`. The test script stores `access_token` in a collection variable.\n\nAn unknown account, a wrong password and an inactive account all return the same 401 message on purpose — otherwise the endpoint becomes an account-enumeration oracle.\n\nRate limited to 10 requests per minute.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"demo\",\n  \"password\": \"password\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('login succeeds', () => pm.response.to.have.status(200));",
+                  "pm.test('envelope is well formed', () => {",
+                  "    pm.expect(body).to.have.property('success', true);",
+                  "    pm.expect(body.data).to.have.property('access_token');",
+                  "});",
+                  "",
+                  "// Capture the token so every later request authorises with no copy-paste.",
+                  "if (body.data && body.data.access_token) {",
+                  "    pm.collectionVariables.set('access_token', body.data.access_token);",
+                  "    console.log('Token stored. All other requests are now authorised.');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Current user",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "me"
+              ]
+            },
+            "description": "The authenticated user's own profile. The password is never included."
+          },
+          "response": []
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/logout",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "logout"
+              ]
+            },
+            "description": "Revokes **only** the token used for this request, so signing out on one device does not sign the user out everywhere."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Reports",
+      "description": "Report subscriptions. Create and list are two of the three routes the assessment names.",
+      "item": [
+        {
+          "name": "Create report",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/reports",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports"
+              ]
+            },
+            "description": "Creates a periodic subscription.\n\n| field | rules |\n|---|---|\n| `name` | required, 2–255 chars |\n| `period` | required, `daily` or `weekly` |\n| `keywords` | required array, 1–10 items, each 2–64 chars |\n| `news_agency_ids` | optional array, narrows to specific agencies |\n| `match_all_keywords` | optional bool; `false` (default) matches ANY keyword, `true` requires ALL |\n\nThe keyword cap is deliberate: every keyword becomes a `multi_match` clause, so an unbounded list would make every scheduled run expensive.\n\nA `user_id` in the body is ignored — the report always belongs to the caller. `next_run_at` is set to the next period boundary.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"آلودگی هوای تهران\",\n  \"period\": \"daily\",\n  \"keywords\": [\n    \"تهران\",\n    \"آلودگی\"\n  ],\n  \"match_all_keywords\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('report created', () => pm.response.to.have.status(200));",
+                  "",
+                  "// Remember the new report so the run/download requests need no editing.",
+                  "if (body.data && body.data.id) {",
+                  "    pm.collectionVariables.set('report_id', body.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List reports",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/reports?page_size=15&current=1&period=&status=&name=&keyword=",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports"
+              ],
+              "query": [
+                {
+                  "key": "page_size",
+                  "value": "15",
+                  "description": "Items per page; capped at 200"
+                },
+                {
+                  "key": "current",
+                  "value": "1",
+                  "description": "Page number"
+                },
+                {
+                  "key": "period",
+                  "value": "",
+                  "description": "Filter: daily | weekly"
+                },
+                {
+                  "key": "status",
+                  "value": "",
+                  "description": "Filter: active | paused"
+                },
+                {
+                  "key": "name",
+                  "value": "",
+                  "description": "Partial name match"
+                },
+                {
+                  "key": "keyword",
+                  "value": "",
+                  "description": "Reports containing this exact keyword"
+                }
+              ]
+            },
+            "description": "Only the caller's own reports. Filters narrow within that set and can never widen it.\n\nReturns the project-wide list envelope:\n`{list: [...], pagination: {total, current, page_size}}`.\n\nLeave the empty query params blank or disable them — they are documented here as options."
+          },
+          "response": []
+        },
+        {
+          "name": "Get one report",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/reports/{{report_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "{{report_id}}"
+              ]
+            },
+            "description": "Reading a report owned by someone else returns 403; an unknown id returns 404."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Report runs",
+      "description": "Beyond the assessment's three named routes.\n\nThese exist because the deliverable — an Excel histogram — is otherwise only observable by waiting for the scheduler and reading the mail log, which makes the feature impossible to demonstrate or review.",
+      "item": [
+        {
+          "name": "Run now",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/reports/{{report_id}}/run",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "{{report_id}}",
+                "run"
+              ]
+            },
+            "description": "Generates immediately instead of waiting for the next scheduled tick.\n\nRuns through exactly the same job the scheduler dispatches, including the same idempotency claim — this is a trigger, not a second code path.\n\n`from`/`to` are optional. Omit both and the report's own period decides the window, exactly as the scheduler would. The supplied corpus spans **2024-12-18 to 2024-12-21**, so that range is the one that returns interesting numbers.\n\nRe-running the same window returns the existing run without regenerating or re-sending.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"from\": \"2024-12-18\",\n  \"to\": \"2024-12-21\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('run completed', () => pm.response.to.have.status(200));",
+                  "pm.test('the run produced a file', () => pm.expect(body.data.has_file).to.eql(true));",
+                  "",
+                  "if (body.data && body.data.id) {",
+                  "    pm.collectionVariables.set('run_id', body.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List runs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/reports/{{report_id}}/runs?page_size=15&status=",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "{{report_id}}",
+                "runs"
+              ],
+              "query": [
+                {
+                  "key": "page_size",
+                  "value": "15",
+                  "description": "Items per page"
+                },
+                {
+                  "key": "status",
+                  "value": "",
+                  "description": "Filter: pending | running | succeeded | failed"
+                }
+              ]
+            },
+            "description": "Execution history. Each run records its window, row count, total matched, the Elasticsearch query time and the export time **separately**, the attempt count, and any error."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('runs listed', () => pm.response.to.have.status(200));",
+                  "",
+                  "// Pick the most recent run that actually has a file, for the download request.",
+                  "const withFile = (body.data.list || []).find((r) => r.has_file);",
+                  "if (withFile) { pm.collectionVariables.set('run_id', withFile.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Download workbook",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/reports/{{report_id}}/runs/{{run_id}}/download",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "{{report_id}}",
+                "runs",
+                "{{run_id}}",
+                "download"
+              ]
+            },
+            "description": "Streams the generated `.xlsx`.\n\nThe workbook is right-to-left, carries a metadata block (report name, keywords, window, total matched), and has one row per day — **including days with zero posts**, so the time axis is not silently compressed.\n\nDates appear in both Gregorian and Jalali.\n\nReturns 404 if the run produced no file, 403 if the report belongs to someone else.\n\nIn Postman use **Send and Download** to save the file."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('workbook returned', () => pm.response.to.have.status(200));",
+                  "pm.test('is an xlsx', () => pm.expect(pm.response.headers.get('Content-Type'))",
+                  "    .to.include('spreadsheetml'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
