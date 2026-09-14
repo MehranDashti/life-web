@@ -58,6 +58,37 @@ return [
     ],
 
     /*
+    |--------------------------------------------------------------------------
+    | Search result cache
+    |--------------------------------------------------------------------------
+    |
+    | Search is only reached during report generation, so the load concentrates
+    | entirely on the scheduler tick: every due report issues its own
+    | aggregation, and many are identical because different users track
+    | overlapping keywords over the same window. Caching collapses those into one
+    | engine call.
+    |
+    | This is about load, not latency. The benchmark measures the aggregation at
+    | 1-2ms flat from 10k to 1M documents, so there is no single-request speed-up
+    | to be had here.
+    |
+    */
+
+    'cache' => [
+        'enabled' => (bool) env('SEARCH_CACHE_ENABLED', true),
+
+        /* Must be a store that survives across processes; the queue workers and
+         | the web tier have to share it for the collapse to happen at all. */
+        'store' => env('SEARCH_CACHE_STORE', 'redis'),
+
+        /* A backstop only. Correctness comes from the corpus version, which
+         | invalidates everything the moment the index is written to. */
+        'ttl' => (int) env('SEARCH_CACHE_TTL', 900),
+
+        'count_ttl' => (int) env('SEARCH_CACHE_COUNT_TTL', 60),
+    ],
+
+    /*
      | Histogram defaults. Report buckets are calendar days in this timezone —
      | the data is Persian news, so Tehran local days are the meaningful unit,
      | not UTC days.
