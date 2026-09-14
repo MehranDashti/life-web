@@ -57,6 +57,9 @@ jobs:
       - name: Validate composer.json
         run: composer validate --strict --no-check-publish
 
+      # .env is only for the non-test steps (phpstan boots the app, passport:keys
+      # writes the signing keys). The suites themselves load .env.testing, which is
+      # committed and self-sufficient.
       - name: Prepare environment
         run: |
           cp .env.example .env
@@ -74,10 +77,18 @@ jobs:
 
       # Unit + Feature only. The Integration suite needs a live Elasticsearch and
       # is run deliberately, not on every push.
+      #
+      # One --testsuite with a comma-separated list, not the flag twice: Laravel's
+      # test runner rejects a repeated option, drops all but the last suite, and
+      # still exits non-zero.
       - name: Tests
+        # These beat .env.testing, which targets the Docker stack's forwarded port
+        # and its own credentials. A real environment variable always wins over
+        # Dotenv, which is what lets one committed file serve host, container and CI.
         env:
           DB_HOST: 127.0.0.1
+          DB_PORT: 3306
           DB_DATABASE: lifeweb_testing
           DB_USERNAME: root
           DB_PASSWORD: root
-        run: php artisan test --testsuite=Unit --testsuite=Feature
+        run: php artisan test --testsuite=Unit,Feature
