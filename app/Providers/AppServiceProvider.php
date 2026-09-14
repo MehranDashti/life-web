@@ -8,20 +8,27 @@ use RuntimeException;
 use Illuminate\Http\Request;
 use Elastic\Elasticsearch\Client;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
+use App\Adapters\Cached\CorpusVersion;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\ServiceProvider;
 use App\Adapters\Fake\FakeSearchAdapter;
 use Elastic\Elasticsearch\ClientBuilder;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Support\Facades\RateLimiter;
+use App\Adapters\Cached\CachedSearchAdapter;
 use App\Adapters\Contracts\SearchAdapterInterface;
+// The facade above already owns the short name, so the concrete limiter the
+// container binds is aliased rather than imported bare.
 use App\Adapters\Elasticsearch\ElasticsearchAdapter;
+use Illuminate\Cache\RateLimiter as RateLimiterService;
 
 class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
         $this->registerSearchAdapter();
+        $this->registerRateLimiterStore();
     }
 
     public function boot(): void
@@ -88,7 +95,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(SearchAdapterInterface::class, function (): SearchAdapterInterface {
             $driver = (string) config('search.driver');
 
-            return match ($driver) {
+            $adapter = match ($driver) {
                 'elasticsearch' => new ElasticsearchAdapter(
                     $this->app->make(Client::class),
                     (array) config('search.elasticsearch'),
@@ -96,6 +103,46 @@ class AppServiceProvider extends ServiceProvider
                 'fake' => new FakeSearchAdapter,
                 default => throw new RuntimeException("Unsupported search driver [{$driver}]."),
             };
+
+            return config('search.cache.enabled')
+                ? $this->wrapInCache($adapter)
+                : $adapter;
         });
+    }
+
+    /**
+     * Wrap a search adapter so identical queries issued in the same scheduler
+     * tick cost one aggregation instead of one each.
+     *
+     * A decorator keeps the engine class free of caching concerns and leaves the
+     * contract unchanged for every caller.
+     */
+    private function wrapInCache(SearchAdapterInterface $adapter): SearchAdapterInterface
+    {
+        $store = Cache::store(config('search.cache.store'));
+
+        return new CachedSearchAdapter(
+            inner: $adapter,
+            cache: $store,
+            version: new CorpusVersion($store),
+            ttl: (int) config('search.cache.ttl'),
+            countTtl: (int) config('search.cache.count_ttl'),
+        );
+    }
+
+    /**
+     * Back the rate limiter with a store shared by every application instance.
+     *
+     * The limiter otherwise uses the default cache store, so with the file store
+     * and N app containers each keeps its own bucket and the effective limit is
+     * N times the configured one — which contradicts the horizontal-scaling
+     * design the rest of the system is built for.
+     */
+    private function registerRateLimiterStore(): void
+    {
+        $this->app->singleton(
+            RateLimiterService::class,
+            static fn (): RateLimiterService => new RateLimiterService(Cache::store(config('cache.limiter'))),
+        );
     }
 }

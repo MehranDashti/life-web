@@ -33,6 +33,32 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Rate Limiter Store
+    |--------------------------------------------------------------------------
+    |
+    | Must be shared by every application instance. Backed by a per-process store
+    | such as `file`, N containers keep N separate buckets and a caller's real
+    | limit becomes N times the configured one.
+    |
+    */
+
+    'limiter' => env('CACHE_LIMITER_STORE', 'redis'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Lock Store
+    |--------------------------------------------------------------------------
+    |
+    | Backs the queue's unique-job lock, which needs genuine atomicity. The unique
+    | index on report_runs remains the primary idempotency guarantee; this is
+    | defence in depth.
+    |
+    */
+
+    'lock_store' => env('CACHE_LOCK_STORE', 'redis'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Cache Stores
     |--------------------------------------------------------------------------
     |

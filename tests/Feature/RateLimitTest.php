@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use Tests\TestCase;
+use ReflectionProperty;
 use App\Models\User\User;
 use Laravel\Passport\Passport;
 use Illuminate\Support\Facades\Hash;
@@ -101,6 +102,24 @@ class RateLimitTest extends TestCase
         }
 
         $this->assertSame(429, $lastStatus, 'Repeated sign-in attempts must eventually be throttled.');
+    }
+
+    /**
+     * The limiter must resolve against a store shared by every application
+     * instance. Backed by a per-process store, N containers keep N buckets and a
+     * caller's real limit becomes N times the configured one — which would quietly
+     * contradict the horizontal-scaling design.
+     */
+    public function test_the_limiter_uses_the_configured_shared_store(): void
+    {
+        $limiter = app(\Illuminate\Cache\RateLimiter::class);
+
+        $property = new ReflectionProperty($limiter, 'cache');
+
+        $this->assertSame(
+            cache()->store(config('cache.limiter'))->getStore()::class,
+            $property->getValue($limiter)->getStore()::class,
+        );
     }
 
     public function test_the_health_endpoint_stays_reachable(): void

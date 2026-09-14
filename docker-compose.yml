@@ -23,6 +23,9 @@ x-app: &app
     ELASTICSEARCH_HOSTS: http://elasticsearch:9200
     CACHE_STORE: redis
     QUEUE_CONNECTION: redis
+    # The image installs the phpredis extension, which is materially faster than
+    # predis. The host has no such extension, which is why .env keeps predis.
+    REDIS_CLIENT: phpredis
   volumes:
     - ./storage:/app/storage
   depends_on:
