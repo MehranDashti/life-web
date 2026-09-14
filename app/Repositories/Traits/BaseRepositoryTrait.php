@@ -17,6 +17,10 @@ use Illuminate\Database\Eloquent\Collection;
  */
 trait BaseRepositoryTrait
 {
+    /**
+     * Find one record by an arbitrary attribute, honouring the configured select
+     * and eager-load lists.
+     */
     public function findByAttribute(string $attribute, mixed $value): ?Model
     {
         return $this->newQuery()
@@ -117,18 +121,25 @@ trait BaseRepositoryTrait
             ->get();
     }
 
+    /**
+     * The newest record by the given column.
+     *
+     * Timestamps have second resolution, so two rows written in the same second tie
+     * and the winner is whatever the storage engine returns first. The primary key
+     * breaks the tie deterministically: models use UUIDv7, which is time-ordered, so
+     * the newest key is also the newest row.
+     */
     public function getLatestRecord(string $column = 'created_at'): ?Model
     {
-        // Timestamps have second resolution, so two rows written in the same second
-        // tie and the winner is whatever the storage engine returns first. The
-        // primary key breaks the tie deterministically: models use UUIDv7, which is
-        // time-ordered, so the newest key is also the newest row.
         return $this->newQuery()
             ->latest($column)
             ->orderByDesc($this->model->getKeyName())
             ->first();
     }
 
+    /**
+     * Write a single column without building a payload array for it.
+     */
     public function updateAttribute(Model $model, string $attribute, mixed $value): Model
     {
         $model->setAttribute($attribute, $value);
@@ -137,6 +148,9 @@ trait BaseRepositoryTrait
         return $model;
     }
 
+    /**
+     * Move a record to a new status, restamping the acting user by default.
+     */
     public function changeStatus(Model $model, string $status, string $attribute = 'status', bool $setUpdateFlag = true): Model
     {
         $model->setAttribute($attribute, $status);
@@ -150,6 +164,9 @@ trait BaseRepositoryTrait
         return $model;
     }
 
+    /**
+     * Stamp the acting user onto one of the audit columns.
+     */
     public function setUserAction(Model $model, string $attribute = 'created_by'): void
     {
         $model->setAttribute($attribute, $this->getAuthor());

@@ -21,11 +21,23 @@ class ReportRunRepository extends BaseRepository implements ReportRunRepositoryI
      */
     private const int STALE_AFTER_MINUTES = 15;
 
+    /**
+     * Bound to the ReportRun model; everything generic comes from BaseRepository.
+     */
     public function __construct(ReportRun $model)
     {
         parent::__construct($model);
     }
 
+    /**
+     * Claim a report and window for execution, or return null if it is already owned.
+     *
+     * The claim is an INSERT against a unique index, so two workers racing for the
+     * same window resolve deterministically at the database — a cache lock can be
+     * raced, a unique index cannot. A violation means the window already has a row,
+     * and whether this worker may take it over depends on what happened to it last
+     * time; see reclaim().
+     */
     public function claimWindow(Report $report, Carbon $periodStart, Carbon $periodEnd): ?ReportRun
     {
         try {
@@ -41,12 +53,13 @@ class ReportRunRepository extends BaseRepository implements ReportRunRepositoryI
 
             return $run;
         } catch (UniqueConstraintViolationException) {
-            // The window already has a row. Whether this worker may take it over
-            // depends on what happened to it last time.
             return $this->reclaim($report, $periodStart, $periodEnd);
         }
     }
 
+    /**
+     * How long a `running` row may sit untouched before another worker may take it.
+     */
     public function staleAfterMinutes(): int
     {
         return self::STALE_AFTER_MINUTES;
@@ -63,16 +76,26 @@ class ReportRunRepository extends BaseRepository implements ReportRunRepositoryI
         ]))->saveQuietly();
     }
 
+    /**
+     * Record a failure on the run.
+     *
+     * The exception class is stored alongside the message because a bare message
+     * rarely identifies which subsystem failed.
+     */
     public function markFailed(ReportRun $run, Throwable $exception): void
     {
         $run->forceFill([
             'status' => ReportRunStatus::Failed,
-            // Class name included because the message alone rarely identifies the
-            // subsystem that failed.
             'error' => $exception::class.': '.$exception->getMessage(),
         ])->saveQuietly();
     }
 
+    /**
+     * Record the outcome of delivery, separately from generation.
+     *
+     * A delivery failure is stored on the run rather than only logged, so it is
+     * visible through the API without discarding the generated artifact.
+     */
     public function recordDelivery(ReportRun $run, ?Throwable $failure = null): void
     {
         $run->forceFill($failure instanceof Throwable
@@ -81,6 +104,15 @@ class ReportRunRepository extends BaseRepository implements ReportRunRepositoryI
         )->saveQuietly();
     }
 
+    /**
+     * Decide whether an existing row for this window may be taken over.
+     *
+     * A succeeded window is refused — redoing it would re-deliver a report the user
+     * already has. A failed window is reclaimed, because the unique index would
+     * otherwise make the first failure permanent. A running window is refused while
+     * fresh and reclaimed once stale, so a worker that died mid-run cannot block the
+     * window forever.
+     */
     private function reclaim(Report $report, Carbon $periodStart, Carbon $periodEnd): ?ReportRun
     {
         $existing = ReportRun::query()
@@ -90,12 +122,9 @@ class ReportRunRepository extends BaseRepository implements ReportRunRepositoryI
             ->first();
 
         if (! $existing instanceof ReportRun) {
-            // Lost the race and then the row vanished — treat as claimed and let
-            // the other worker finish.
             return null;
         }
 
-        // Already produced. Redoing it would re-deliver a report the user has.
         if ($existing->status === ReportRunStatus::Succeeded) {
             return null;
         }

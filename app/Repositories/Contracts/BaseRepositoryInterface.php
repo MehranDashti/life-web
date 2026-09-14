@@ -30,6 +30,10 @@ interface BaseRepositoryInterface
      */
     public function update(Model $model, array $payload, bool $setUpdateFlag = true, bool $dispatchEvents = true): void;
 
+    /**
+     * Delete a record, stamping `deleted_by` first so the audit trail survives a
+     * soft delete.
+     */
     public function delete(Model $model, bool $setDeleteFlag = true): void;
 
     /**
@@ -89,10 +93,19 @@ interface BaseRepositoryInterface
      */
     public function findAll(array $with = []): Collection;
 
+    /**
+     * The newest record by the given column, with ties broken deterministically.
+     */
     public function getLatestRecord(string $column = 'created_at'): ?Model;
 
+    /**
+     * Write a single column, for callers that would otherwise build a one-key array.
+     */
     public function updateAttribute(Model $model, string $attribute, mixed $value): Model;
 
+    /**
+     * Move a record to a new status, restamping the acting user by default.
+     */
     public function changeStatus(Model $model, string $status, string $attribute = 'status', bool $setUpdateFlag = true): Model;
 
     /**

@@ -23,8 +23,16 @@ abstract class BaseRepository implements BaseRepositoryInterface
     /** @var array<int, string> */
     protected array $withItems = [];
 
+    /**
+     * The Eloquent model this repository is bound to. Concrete repositories inject
+     * their own and call up.
+     */
     public function __construct(protected Model $model) {}
 
+    /**
+     * The underlying model, for callers that need the class name — the Osmose
+     * filter builder, for instance.
+     */
     public function getModel(): Model
     {
         return $this->model;

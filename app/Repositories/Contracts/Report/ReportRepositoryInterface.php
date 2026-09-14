@@ -38,5 +38,9 @@ interface ReportRepositoryInterface extends BaseRepositoryInterface
      */
     public function markRunFailed(Report $report): int;
 
+    /**
+     * Take a report out of dispatch after repeated failures, so a broken
+     * subscription stops loading the search cluster on every tick.
+     */
     public function pause(Report $report): void;
 }

@@ -39,7 +39,15 @@ interface ReportRunRepositoryInterface extends BaseRepositoryInterface
      */
     public function markSucceeded(ReportRun $run, array $attributes): void;
 
+    /**
+     * Record a failure on the run, keeping the exception class alongside the
+     * message so the failing subsystem is identifiable afterwards.
+     */
     public function markFailed(ReportRun $run, Throwable $exception): void;
 
+    /**
+     * Record the outcome of delivery, which is a step distinct from generation: a
+     * delivery failure is stored on the run without discarding the artifact.
+     */
     public function recordDelivery(ReportRun $run, ?Throwable $failure = null): void;
 }
