@@ -35,6 +35,16 @@ final class ReportService extends BaseService implements DataServiceInterface, H
 
     private const string CACHE_TAG = 'reports';
 
+    private const string RUN_CACHE_TAG = 'report_runs';
+
+    /**
+     * Run history is a read-mostly audit view, so it uses a short time-to-live
+     * rather than event-driven invalidation. Flushing it from the queued job
+     * would couple the queue layer to a read cache to save at most a minute of
+     * staleness on a history list — not a trade worth making.
+     */
+    private const int RUN_CACHE_TTL = 60;
+
     /**
      * Two repositories: subscriptions through the base contract, and runs
      * separately, because listing a report's history is a read of a different table.
@@ -101,12 +111,17 @@ final class ReportService extends BaseService implements DataServiceInterface, H
      */
     public function getRunFilter(OsmoseFilter $filter, Report $report, array $conditions = []): array
     {
-        return $this->filter($filter, $this->runs->getModel())
-            ->addListConditions(array_merge($conditions, ['report_id' => $report->getKey()]))
-            ->sortModel($this->queryInfo()['sort'])
-            ->orderBy('created_at', 'DESC')
-            ->paginate()
-            ->renderFilter(ReportRunResource::class);
+        return $this->rememberQueryCache(
+            self::RUN_CACHE_TAG,
+            $this->queryCacheKey(self::RUN_CACHE_TAG),
+            fn (): array => $this->filter($filter, $this->runs->getModel())
+                ->addListConditions(array_merge($conditions, ['report_id' => $report->getKey()]))
+                ->sortModel($this->queryInfo()['sort'])
+                ->orderBy('created_at', 'DESC')
+                ->paginate()
+                ->renderFilter(ReportRunResource::class),
+            self::RUN_CACHE_TTL,
+        );
     }
 
     /**

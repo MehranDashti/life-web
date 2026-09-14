@@ -12,6 +12,8 @@ use Illuminate\Support\Carbon;
 use App\Models\Report\ReportRun;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -67,6 +69,19 @@ class GenerateReportJob implements ShouldBeUnique, ShouldQueue
     public function uniqueId(): string
     {
         return "report:{$this->reportId}:{$this->periodStart}:{$this->periodEnd}";
+    }
+
+    /**
+     * Back the uniqueness lock with a store that offers atomic locks.
+     *
+     * The default cache store may be per-process, which makes the lock nearly
+     * worthless across workers. The unique index on report_runs is still the
+     * primary guarantee — this only avoids the wasted work of two workers both
+     * starting before one loses the race at the database.
+     */
+    public function uniqueVia(): Repository
+    {
+        return Cache::store(config('cache.lock_store'));
     }
 
     public function handle(
