@@ -1,7 +1,9 @@
 <?php
 
-use Illuminate\Support\Str;
+declare(strict_types=1);
+
 use Pdo\Mysql;
+use Illuminate\Support\Str;
 
 return [
 
