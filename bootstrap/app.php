@@ -1,21 +1,62 @@
 <?php
 
+declare(strict_types=1);
+
+use Illuminate\Http\Request;
+use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Foundation\Application;
+use App\Exceptions\SearchUnavailableException;
+use Mehrand\ApiExceptions\Handlers\ApiException;
+use Elastic\Transport\Exception\TransportException;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
-use Illuminate\Http\Request;
+use Illuminate\Routing\Middleware\SubstituteBindings;
+use Symfony\Component\Routing\Exception\RouteNotFoundException;
+use Symfony\Component\HttpKernel\Exception\UnauthorizedHttpException;
+use Elastic\Elasticsearch\Exception\ElasticsearchException as ElasticsearchExceptionInterface;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
-        web: __DIR__.'/../routes/web.php',
+        using: function (): void {
+            Route::middleware(['api', SubstituteBindings::class])
+                ->prefix('api/v1')
+                ->as('v1.')
+                ->group(base_path('routes/api/v1.php'));
+        },
         commands: __DIR__.'/../routes/console.php',
-        health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        $middleware->throttleApi('api');
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        $exceptions->shouldRenderJsonWhen(
-            fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
-        );
-    })->create();
+        $exceptions->render(function (Throwable $e, Request $request) {
+            // Laravel redirects unauthenticated requests to the named 'login' route,
+            // which does not exist in an API-only app. Normalise that into a 401
+            // instead of letting a RouteNotFoundException surface as a 500.
+            if ($e instanceof RouteNotFoundException || str_contains($e->getMessage(), '[login]')) {
+                $e = new RuntimeException(trans('messages.user_is_unauthenticated'), Response::HTTP_UNAUTHORIZED);
+            }
+
+            if ($e instanceof UnauthorizedHttpException) {
+                $e = new RuntimeException(trans('messages.user_is_unauthenticated'), Response::HTTP_UNAUTHORIZED);
+            }
+
+            // Elasticsearch failures can only be matched by interface, which
+            // config/exceptions.php (an exact class-name map) cannot express.
+            // Log the real cause, then hand the caller a clean 503.
+            if ($e instanceof ElasticsearchExceptionInterface || $e instanceof TransportException) {
+                Log::error('elasticsearch request failed', [
+                    'exception' => $e::class,
+                    'message' => $e->getMessage(),
+                    'path' => $request->path(),
+                ]);
+
+                $e = new SearchUnavailableException($e);
+            }
+
+            return ApiException::handle($e);
+        });
+    })
+    ->create();
