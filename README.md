@@ -614,11 +614,19 @@ secret to reach the two private `mehrand/*` packages.
 
 ### Testing
 
+**296 tests / 1,188 assertions** across Unit (100) and Feature (188), plus 8
+integration tests against a live cluster.
+
 `SEARCH_DRIVER=fake` binds an in-memory search double in the test environment, so
 unit and feature tests need no infrastructure. Only `tests/Integration` talks to a
 real cluster — it asserts the things the double cannot reproduce: the Persian
 analysis chain, the strict mapping, and the shape of a real `date_histogram`
 response. It is excluded from `make test` and from CI; run it with `make integration`.
+
+Several of the defects fixed in this project were found by writing these tests
+rather than by review — the timezone drift, the dispatcher hot-loop, the
+unretryable failed window, and a rate-limit rejection that returned 500 instead of
+429. Where a test and the code disagreed, the code was fixed.
 
 ### Spec-driven development
 
