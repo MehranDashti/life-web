@@ -37,4 +37,5 @@ return [
     'report_mail_days' => 'Days covered',
     'report_mail_attachment_note' => 'The attached Excel file contains the daily publication histogram.',
     'report_mail_signature' => 'LifeWeb',
+    'too_many_requests' => 'Too many requests. Please slow down and try again shortly.',
 ];

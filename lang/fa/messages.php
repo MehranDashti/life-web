@@ -47,4 +47,5 @@ return [
     'report_mail_days' => 'تعداد روزهای گزارش',
     'report_mail_attachment_note' => 'فایل اکسل حاوی هیستوگرام انتشار روزانه، پیوست شده است.',
     'report_mail_signature' => 'لایف وب',
+    'too_many_requests' => 'تعداد درخواست‌های شما بیش از حد مجاز است. لطفاً کمی بعد تلاش کنید.',
 ];
