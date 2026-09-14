@@ -14,5 +14,11 @@ use Illuminate\Foundation\Http\FormRequest;
  */
 interface FromRequestDTOInterface
 {
+    /**
+     * Build a populated instance from an already-validated request.
+     *
+     * Returns `static` rather than `self` so a concrete DTO keeps its own type at
+     * the call site instead of widening to this interface.
+     */
     public function fromRequest(FormRequest $request): static;
 }

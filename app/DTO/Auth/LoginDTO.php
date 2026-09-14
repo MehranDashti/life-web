@@ -15,11 +15,21 @@ use App\DTO\Contracts\FromRequestDTOInterface;
  */
 final readonly class LoginDTO implements FromRequestDTOInterface, ToArrayDTOInterface
 {
+    /**
+     * Both fields default to an empty string so the container can resolve an empty
+     * instance for `fromRequest()` to build from.
+     */
     public function __construct(
         public string $username = '',
         public string $password = '',
     ) {}
 
+    /**
+     * Build the credentials from an already-validated request.
+     *
+     * `username` accepts either a username or an email; deciding which is the
+     * service's job, not the DTO's.
+     */
     public function fromRequest(FormRequest $request): static
     {
         return new self(
@@ -29,6 +39,11 @@ final readonly class LoginDTO implements FromRequestDTOInterface, ToArrayDTOInte
     }
 
     /**
+     * The credentials as a plain array, for the guard's attempt() call.
+     *
+     * Nothing persists a LoginDTO, so the model argument required by the contract
+     * is unused here.
+     *
      * @return array{username: string, password: string}
      */
     public function toArray(?Model $model = null): array

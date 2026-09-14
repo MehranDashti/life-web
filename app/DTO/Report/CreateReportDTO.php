@@ -34,6 +34,14 @@ final readonly class CreateReportDTO implements FromRequestDTOInterface, ToArray
         public bool $matchAllKeywords = false,
     ) {}
 
+    /**
+     * Build the subscription payload from an already-validated request.
+     *
+     * The owner is read from the authenticated user, never from the body: a
+     * `user_id` in the payload is ignored so a client cannot create a subscription
+     * belonging to someone else. An empty agency list collapses to null rather than
+     * an empty array, so "no filter" has one representation instead of two.
+     */
     public function fromRequest(FormRequest $request): static
     {
         $agencies = $request->input('news_agency_ids');
@@ -49,6 +57,12 @@ final readonly class CreateReportDTO implements FromRequestDTOInterface, ToArray
     }
 
     /**
+     * The persistence payload for a new subscription.
+     *
+     * A report starts active with a clean failure streak, and is scheduled for the
+     * next period boundary rather than immediately — otherwise it would fire on the
+     * next tick with a window it was never subscribed for.
+     *
      * @return array<string, mixed>
      */
     public function toArray(?Model $model = null): array
