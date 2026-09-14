@@ -7,6 +7,9 @@ storage/logs/*
 storage/framework/cache/*
 storage/framework/sessions/*
 storage/framework/views/*
+# Fake-disk scratch written by in-container test runs, owned by root. Never
+# belongs in the image, and its presence breaks the build on a permission error.
+storage/framework/testing/*
 # Generated workbooks are runtime data written by the container as root; they must
 # never be baked into the image, and leaving them here breaks the build on a
 # permission error.
