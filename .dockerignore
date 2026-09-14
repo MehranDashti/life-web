@@ -1,0 +1,14 @@
+.git
+.github
+.idea
+vendor
+node_modules
+storage/logs/*
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*
+loadtest/results/*
+openspec
+*.md
+!README.md
+task.pdf

@@ -1,0 +1,151 @@
+name: lifeweb
+
+x-app: &app
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+    # The two mehrand/* packages are private GitHub repos fetched over SSH during
+    # composer install. Without this the agent is not forwarded into the build and
+    # `make build` fails on "Permission denied (publickey)".
+    ssh:
+      - default
+  image: lifeweb-api:local
+  env_file: .env
+  environment:
+    # .env holds HOST-side values so Artisan can be run from the developer's machine
+    # against the forwarded ports. Inside the network the service names and their
+    # native ports apply, so both host and port must be overridden — overriding only
+    # the host leaves the container dialling mysql:33306, which does not exist.
+    DB_HOST: mysql
+    DB_PORT: 3306
+    REDIS_HOST: redis
+    REDIS_PORT: 6379
+    ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    CACHE_STORE: redis
+    QUEUE_CONNECTION: redis
+  volumes:
+    - ./storage:/app/storage
+  depends_on:
+    mysql: { condition: service_healthy }
+    redis: { condition: service_healthy }
+  networks: [lifeweb]
+  restart: unless-stopped
+
+services:
+  app:
+    <<: *app
+    container_name: lifeweb-app
+    ports:
+      - "${APP_PORT:-9900}:8080"
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@file_get_contents('http://127.0.0.1:8080/api/v1/up') ? 0 : 1);"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  # Report generation is one queued job per report. This is the scaling seam:
+  # `docker compose up --scale queue=8` multiplies report throughput without
+  # touching the API containers.
+  queue:
+    <<: *app
+    container_name: lifeweb-queue
+    command: ["php", "artisan", "queue:work", "--queue=reports,default", "--tries=3", "--backoff=10,60,300", "--max-time=3600"]
+    ports: []
+    healthcheck:
+      disable: true
+
+  # Dispatch only — it enqueues due reports and computes nothing itself, so a
+  # single scheduler never becomes the bottleneck.
+  scheduler:
+    <<: *app
+    container_name: lifeweb-scheduler
+    command: ["php", "artisan", "schedule:work"]
+    ports: []
+    healthcheck:
+      disable: true
+
+  mysql:
+    image: mysql:8.4
+    container_name: lifeweb-mysql
+    environment:
+      MYSQL_DATABASE: "${DB_DATABASE:-lifeweb}"
+      MYSQL_USER: "${DB_USERNAME:-lifeweb}"
+      MYSQL_PASSWORD: "${DB_PASSWORD:-secret}"
+      MYSQL_ROOT_PASSWORD: "${DB_ROOT_PASSWORD:-root}"
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    ports:
+      - "${DB_FORWARD_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${DB_ROOT_PASSWORD:-root}"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    networks: [lifeweb]
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: lifeweb-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_FORWARD_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [lifeweb]
+    restart: unless-stopped
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    container_name: lifeweb-elasticsearch
+    environment:
+      discovery.type: single-node
+      # Security is off for local development only. In any shared environment,
+      # enable it and set ELASTICSEARCH_USERNAME/PASSWORD or an API key.
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "${ES_JAVA_OPTS:--Xms1g -Xmx1g}"
+      cluster.routing.allocation.disk.threshold_enabled: "false"
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+    ports:
+      - "${ES_FORWARD_PORT:-9200}:9200"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 45s
+    networks: [lifeweb]
+    restart: unless-stopped
+
+  # `docker compose --profile loadtest run --rm k6 run /scripts/<scenario>.js`
+  k6:
+    image: grafana/k6:latest
+    container_name: lifeweb-k6
+    profiles: [loadtest]
+    environment:
+      BASE_URL: http://app:8080
+      K6_OUT: json=/scripts/results/summary.json
+    volumes:
+      - ./loadtest:/scripts
+    networks: [lifeweb]
+    depends_on:
+      app: { condition: service_healthy }
+
+volumes:
+  mysql-data:
+  redis-data:
+  elasticsearch-data:
+
+networks:
+  lifeweb:
+    driver: bridge
