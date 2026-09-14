@@ -5,9 +5,12 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use Throwable;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Console\Command;
+use Elastic\Elasticsearch\Client;
 use App\Services\Search\PostIndexService;
+use App\Adapters\Cached\CachedSearchAdapter;
 use App\Adapters\Contracts\Data\HistogramQuery;
 use App\Adapters\Contracts\SearchAdapterInterface;
 use App\Adapters\Elasticsearch\ElasticsearchAdapter;
@@ -28,12 +31,15 @@ class BenchmarkSearchCommand extends Command
         {--keywords=تهران : Comma-separated keywords to filter on}
         {--window=30 : Report window in days}
         {--content-words=40 : Body length of each synthetic document}
-        {--output=loadtest/results/bench-search.json : Where to write the raw results}';
+        {--output=loadtest/results/bench-search.json : Where to write the raw results}
+        {--herd= : Instead of sweeping, issue N identical queries and report how many reached the engine}';
 
     protected $description = 'Sweep the corpus and measure aggregation time at each size';
 
     public function handle(PostIndexService $indexer, SearchAdapterInterface $search): int
     {
+        $search = $this->engine($search);
+
         if (! $search->ping()) {
             $this->components->error('Elasticsearch is unreachable.');
 
@@ -58,6 +64,10 @@ class BenchmarkSearchCommand extends Command
             timezone: (string) config('search.histogram.timezone', 'Asia/Tehran'),
         );
 
+        if ($this->option('herd') !== null) {
+            return $this->measureHerd($search, $query, max(1, (int) $this->option('herd')));
+        }
+
         $results = [];
 
         foreach ($sizes as $size) {
@@ -77,6 +87,65 @@ class BenchmarkSearchCommand extends Command
         $this->renderTable($results);
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Measure the search cache in the only terms that matter for it.
+     *
+     * Latency is the wrong metric: the aggregation is 1-2ms flat from 10k to 1M
+     * documents, so a cache cannot make it meaningfully faster. What it does is
+     * stop N due reports asking the same question N times. This reads
+     * Elasticsearch's own query_total counter across N identical queries, so the
+     * figure reported is aggregations the engine never had to run.
+     */
+    private function measureHerd(SearchAdapterInterface $search, HistogramQuery $query, int $times): int
+    {
+        $before = $this->engineQueryTotal();
+
+        for ($i = 0; $i < $times; $i++) {
+            $search->dailyHistogram($query);
+        }
+
+        $reached = $this->engineQueryTotal() - $before;
+
+        $this->newLine();
+        $this->components->twoColumnDetail('Identical queries issued', (string) $times);
+        $this->components->twoColumnDetail('Aggregations reaching the engine', (string) $reached);
+        $this->components->twoColumnDetail('Avoided', (string) max(0, $times - $reached));
+        $this->components->twoColumnDetail(
+            'Search cache',
+            config('search.cache.enabled') ? 'enabled' : 'disabled',
+        );
+
+        $this->writeResults([[
+            'mode' => 'herd',
+            'queries_issued' => $times,
+            'aggregations_reaching_engine' => $reached,
+            'cache_enabled' => (bool) config('search.cache.enabled'),
+            'failed' => false,
+        ]], [], 0, $times);
+
+        return self::SUCCESS;
+    }
+
+    /**
+     * Elasticsearch's own counter of executed queries, which cannot be fooled by
+     * anything happening on the application side.
+     */
+    private function engineQueryTotal(): int
+    {
+        try {
+            $client = app(Client::class);
+            $stats = $client->indices()->stats([
+                'index' => (string) config('search.elasticsearch.index_pattern'),
+                'metric' => 'search',
+                'ignore_unavailable' => true,
+            ])->asArray();
+
+            return (int) Arr::get($stats, '_all.total.search.query_total', 0);
+        } catch (Throwable) {
+            return 0;
+        }
     }
 
     /**
@@ -229,5 +298,21 @@ class BenchmarkSearchCommand extends Command
         $power = min((int) floor(log($bytes, 1024)), count($units) - 1);
 
         return round($bytes / 1024 ** $power, 1).' '.$units[$power];
+    }
+
+    /**
+     * Strip the cache decorator so the benchmark characterises Elasticsearch.
+     *
+     * Measuring through the cache would report near-zero times after the warm-up
+     * pass, because every measured iteration issues the same query and would be a
+     * hit — the result would describe Redis while claiming to describe the engine.
+     * It also restores the concrete-adapter checks below, which drive force-merge
+     * and on-disk size and would silently no-op against a decorator.
+     *
+     * The cache's own effect is measured separately, by `--herd`.
+     */
+    private function engine(SearchAdapterInterface $search): SearchAdapterInterface
+    {
+        return $search instanceof CachedSearchAdapter ? $search->inner() : $search;
     }
 }

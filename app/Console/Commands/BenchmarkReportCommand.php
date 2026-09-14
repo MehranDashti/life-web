@@ -9,6 +9,7 @@ use App\Models\Report\Report;
 use Illuminate\Support\Carbon;
 use Illuminate\Console\Command;
 use App\Services\Search\PostIndexService;
+use App\Adapters\Cached\CachedSearchAdapter;
 use App\Services\Report\ReportGenerationService;
 use App\Adapters\Contracts\SearchAdapterInterface;
 use App\Adapters\Elasticsearch\ElasticsearchAdapter;
@@ -38,6 +39,8 @@ class BenchmarkReportCommand extends Command
         SearchAdapterInterface $search,
         ReportGenerationService $generator,
     ): int {
+        $search = $this->engine($search);
+
         if (! $search->ping()) {
             $this->components->error('Elasticsearch is unreachable.');
 
@@ -179,5 +182,21 @@ class BenchmarkReportCommand extends Command
             ['documents', 'window', 'rows', 'matched', 'query', 'export', 'peak memory'],
             $rows,
         );
+    }
+
+    /**
+     * Strip the cache decorator so the benchmark characterises Elasticsearch.
+     *
+     * Measuring through the cache would report near-zero times after the warm-up
+     * pass, because every measured iteration issues the same query and would be a
+     * hit — the result would describe Redis while claiming to describe the engine.
+     * It also restores the concrete-adapter checks below, which drive force-merge
+     * and on-disk size and would silently no-op against a decorator.
+     *
+     * The cache's own effect is measured separately, by `--herd`.
+     */
+    private function engine(SearchAdapterInterface $search): SearchAdapterInterface
+    {
+        return $search instanceof CachedSearchAdapter ? $search->inner() : $search;
     }
 }
