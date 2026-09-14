@@ -643,22 +643,6 @@ rather than by review — the timezone drift, the dispatcher hot-loop, the
 unretryable failed window, and a rate-limit rejection that returned 500 instead of
 429. Where a test and the code disagreed, the code was fixed.
 
-### Spec-driven development
-
-Work goes through [OpenSpec](https://github.com/Fission-AI/OpenSpec): a change is
-specified, reviewed and approved before any code is written.
-
-```bash
-openspec list                 # active changes
-openspec show <change>        # read one
-openspec validate --all
-```
-
-`openspec/changes/*/tasks.md` records not just what was built but what went wrong
-while building it — the timezone drift, the dispatcher hot-loop and the
-unretryable-failed-window bug are all written up where the change that introduced
-them lives.
-
 ### Configuration
 
 Every value the application reads lives in `config/` and is reached through
@@ -694,7 +678,6 @@ app/
   Support/         JsonArrayStreamReader
 docker/            Dockerfile, entrypoint, supervisord, php.ini
 loadtest/          k6 scenarios and committed raw results
-openspec/          living specs and change proposals
 postman/           collection + environment
 CLAUDE.md          architecture, conventions and the spec-driven workflow
 data.json          the supplied corpus: 21 Persian news posts
