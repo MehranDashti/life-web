@@ -50,4 +50,19 @@ interface SearchAdapterInterface
      * results by data volume.
      */
     public function count(): int;
+
+    /**
+     * Make everything indexed so far visible to search.
+     *
+     * Bulk indexing runs with refresh disabled, so an importer refreshes once at
+     * the end rather than once per chunk. Without this on the contract, callers
+     * would have to reach around the adapter to the engine client.
+     */
+    public function refresh(): void;
+
+    /**
+     * Drop every index in the family. Destructive; exists for the benchmark
+     * sweep, which measures the same query against successive corpus sizes.
+     */
+    public function flush(): void;
 }

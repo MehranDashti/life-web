@@ -132,6 +132,77 @@ final readonly class ElasticsearchAdapter implements SearchAdapterInterface
         return (int) ($response['count'] ?? 0);
     }
 
+    public function refresh(): void
+    {
+        $this->client->indices()->refresh([
+            'index' => $this->str('index_pattern'),
+            'ignore_unavailable' => true,
+        ]);
+    }
+
+    public function flush(): void
+    {
+        // Elasticsearch refuses a wildcard delete by default
+        // (action.destructive_requires_name), so the pattern is resolved to
+        // concrete index names first. That is also safer: an explicit list can
+        // never accidentally widen to `*`.
+        $indices = $this->concreteIndices();
+
+        if ($indices === []) {
+            return;
+        }
+
+        $this->client->indices()->delete([
+            'index' => implode(',', $indices),
+            'ignore_unavailable' => true,
+        ]);
+    }
+
+    /**
+     * Concrete index names currently matching the configured pattern.
+     *
+     * @return array<int, string>
+     */
+    public function concreteIndices(): array
+    {
+        $response = $this->client->indices()->get([
+            'index' => $this->str('index_pattern'),
+            'ignore_unavailable' => true,
+            'allow_no_indices' => true,
+        ])->asArray();
+
+        return array_keys($response);
+    }
+
+    /**
+     * Merge each index down to one segment. Only used by the benchmark, where an
+     * unmerged index would make query time a measure of segment count rather than
+     * of corpus size.
+     */
+    public function forceMerge(): void
+    {
+        $this->client->indices()->forcemerge([
+            'index' => $this->str('index_pattern'),
+            'max_num_segments' => 1,
+            'ignore_unavailable' => true,
+        ]);
+    }
+
+    /**
+     * Total size on disk of the index family, in bytes. Reported alongside
+     * benchmark timings so a result can be read against the data behind it.
+     */
+    public function storeSizeInBytes(): int
+    {
+        $response = $this->client->indices()->stats([
+            'index' => $this->str('index_pattern'),
+            'metric' => 'store',
+            'ignore_unavailable' => true,
+        ])->asArray();
+
+        return (int) Arr::get($response, '_all.total.store.size_in_bytes', 0);
+    }
+
     /**
      * Keywords and the date range go in `filter`, never in `must`: filter clauses
      * skip scoring entirely and are cacheable, and a histogram has no use for

@@ -85,17 +85,22 @@ final class FakeSearchAdapter implements SearchAdapterInterface
         return count($this->documents);
     }
 
+    public function refresh(): void
+    {
+        // No-op: writes are immediately visible in memory.
+    }
+
+    public function flush(): void
+    {
+        $this->documents = [];
+    }
+
     /**
      * Simulate an outage, so the 503 degradation path can be tested.
      */
     public function setAvailable(bool $available): void
     {
         $this->available = $available;
-    }
-
-    public function flush(): void
-    {
-        $this->documents = [];
     }
 
     /**
