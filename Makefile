@@ -8,7 +8,7 @@ APP   := $(DC) exec -T app
 .DEFAULT_GOAL := help
 .PHONY: help build up down restart logs shell install key migrate fresh seed \
         index synthetic test unit feature integration lint lint-fix analyse \
-        rector rector-fix ci loadtest hooks
+        rector rector-fix ci loadtest loadtest-steady bench hooks
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -90,8 +90,19 @@ ci: lint analyse rector ## The full gate — run before every push
 	php artisan test
 
 ## ----------------------------------------------------------------- benchmark
-loadtest: ## Run the k6 scenarios against the running stack
-	$(DC) --profile loadtest run --rm k6 run /scripts/report-api.js
+# DOCKER_UID/GID are passed so k6 can write its results into the bind mount.
+loadtest: ## Run the k6 ramp scenario against the running stack
+	DOCKER_UID=$(shell id -u) DOCKER_GID=$(shell id -g) $(DC) --profile loadtest run --rm k6 \
+		run --summary-export=/scripts/results/k6-report-api.json /scripts/report-api.js
+
+loadtest-steady: ## Run the fixed-rate read scenario
+	DOCKER_UID=$(shell id -u) DOCKER_GID=$(shell id -g) $(DC) --profile loadtest run --rm k6 \
+		run --summary-export=/scripts/results/k6-list-reports.json /scripts/list-reports.js
+
+bench: ## Sweep the corpus and measure query + generation time (long; flushes the index)
+	$(APP) php artisan bench:search --sizes=$(or $(SIZES),10000,100000,1000000)
+	$(APP) php artisan bench:report --sizes=$(or $(SIZES),10000,100000,1000000)
+	@echo "Raw results in loadtest/results/. Re-seed the demo corpus with: make index" 
 
 hooks: ## Install the repo's git hooks
 	git config core.hooksPath .githooks
