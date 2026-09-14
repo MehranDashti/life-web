@@ -1,45 +1,40 @@
 <?php
 
-namespace Database\Factories;
+declare(strict_types=1);
 
-use App\Models\User;
-use Illuminate\Database\Eloquent\Factories\Factory;
+namespace Database\Factories\User;
+
+use App\Enums\UserStatus;
+use App\Models\User\User;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Str;
+use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
  * @extends Factory<User>
  */
 class UserFactory extends Factory
 {
-    /**
-     * The current password being used by the factory.
-     */
-    protected static ?string $password;
+    protected $model = User::class;
 
-    /**
-     * Define the model's default state.
-     *
-     * @return array<string, mixed>
-     */
     public function definition(): array
     {
         return [
-            'name' => fake()->name(),
+            'username' => fake()->unique()->userName(),
             'email' => fake()->unique()->safeEmail(),
-            'email_verified_at' => now(),
-            'password' => static::$password ??= Hash::make('password'),
-            'remember_token' => Str::random(10),
+            'name' => fake()->name(),
+            'password' => Hash::make('password'),
+            'status' => UserStatus::Active,
+
+            // Declared explicitly so a freshly created model carries every attribute a
+            // persisted row has. Model::shouldBeStrict() otherwise throws the first time
+            // a resource reads a column the factory never set.
+            'last_login_ip' => null,
+            'last_login_at' => null,
         ];
     }
 
-    /**
-     * Indicate that the model's email address should be unverified.
-     */
-    public function unverified(): static
+    public function inactive(): self
     {
-        return $this->state(fn (array $attributes) => [
-            'email_verified_at' => null,
-        ]);
+        return $this->state(fn (): array => ['status' => UserStatus::Inactive]);
     }
 }

@@ -1,6 +1,8 @@
 <?php
 
-use App\Models\User;
+declare(strict_types=1);
+
+use App\Models\User\User;
 
 return [
 
@@ -41,6 +43,19 @@ return [
         'web' => [
             'driver' => 'session',
             'provider' => 'users',
+        ],
+
+        /*
+         * The only guard this API uses. Always resolve the caller with
+         * Auth::guard('api') / auth('api') — the default guard is still 'web',
+         * so the bare Auth facade would silently return null.
+         *
+         * 'hash' => false because Passport stores token hashes itself.
+         */
+        'api' => [
+            'driver' => 'passport',
+            'provider' => 'users',
+            'hash' => false,
         ],
     ],
 
