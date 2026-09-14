@@ -20,16 +20,28 @@ final readonly class ImportResult
         public array $errors = [],
     ) {}
 
+    /**
+     * Whether any document was rejected. Bulk indexing reports per-item failures
+     * inside an otherwise successful response, so callers must check this rather
+     * than an HTTP status.
+     */
     public function hasFailures(): bool
     {
         return $this->failed > 0;
     }
 
+    /**
+     * Documents attempted, successful or not.
+     */
     public function total(): int
     {
         return $this->indexed + $this->failed;
     }
 
+    /**
+     * Indexing throughput, counting only documents that actually landed. Guards
+     * against dividing by zero on a sub-millisecond import.
+     */
     public function documentsPerSecond(): float
     {
         return $this->durationMs > 0

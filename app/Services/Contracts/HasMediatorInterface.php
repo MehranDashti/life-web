@@ -12,5 +12,8 @@ use App\Mediators\Contracts\BaseMediatorInterface;
  */
 interface HasMediatorInterface
 {
+    /**
+     * The mediator guarding this domain. BaseService resolves it at construction.
+     */
     public function mediatorClass(): BaseMediatorInterface;
 }

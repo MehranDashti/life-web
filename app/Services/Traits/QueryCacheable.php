@@ -43,6 +43,9 @@ trait QueryCacheable
         return Cache::tags([$tag])->remember($key, $ttl, $callback);
     }
 
+    /**
+     * Invalidate every cached read under a tag. Called on any write to the domain.
+     */
     protected function flushQueryCache(string $tag): void
     {
         if (! $this->queryCacheAvailable()) {

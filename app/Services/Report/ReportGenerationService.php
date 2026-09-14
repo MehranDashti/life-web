@@ -20,6 +20,10 @@ use App\Adapters\Contracts\SearchAdapterInterface;
  */
 final readonly class ReportGenerationService
 {
+    /**
+     * The search adapter and the exporter — the two halves whose timings are
+     * reported separately on every run.
+     */
     public function __construct(
         private SearchAdapterInterface $search,
         private HistogramExcelWriter $writer,
@@ -61,6 +65,12 @@ final readonly class ReportGenerationService
         );
     }
 
+    /**
+     * Translate a subscription plus a window into a search query.
+     *
+     * Public so the benchmark can build the same query the scheduler would, rather
+     * than approximating it.
+     */
     public function queryFor(Report $report, Carbon $from, Carbon $to): HistogramQuery
     {
         return new HistogramQuery(

@@ -53,6 +53,10 @@ trait WebFilter
         return $this;
     }
 
+    /**
+     * Add a sort. Applied after any client-supplied sorter, so it acts as a
+     * tiebreaker rather than overriding the caller.
+     */
     public function orderBy(string $column, string $direction = 'ASC'): self
     {
         $this->queryBuilder()->orderBy($column, $direction);
@@ -70,6 +74,9 @@ trait WebFilter
         return $this;
     }
 
+    /**
+     * Add a constraint, passing through to the underlying builder.
+     */
     public function where(mixed $column, mixed $operator = null, mixed $value = null): self
     {
         $this->queryBuilder()->where($column, $operator, $value);
@@ -92,6 +99,9 @@ trait WebFilter
         return $this;
     }
 
+    /**
+     * Start a query from an Osmose filter. Every chained call below refines it.
+     */
     protected function filter(OsmoseFilter $filter, Model $model): self
     {
         $this->builder = $filter->sieve($model::class);
@@ -99,6 +109,12 @@ trait WebFilter
         return $this;
     }
 
+    /**
+     * Close the query and page it.
+     *
+     * After this the builder is a paginator, so no further constraints can be added
+     * — renderFilter() is the only legal next step.
+     */
     protected function paginate(?int $pagination = null): self
     {
         $queryInfo = $this->queryInfo();
@@ -126,6 +142,12 @@ trait WebFilter
     /**
      * The canonical list envelope. Every list endpoint returns exactly this shape.
      *
+     * The collection is resolved to a plain array rather than left as a
+     * JsonResource collection, which is not safely serialisable: cached and read
+     * back it becomes __PHP_Incomplete_Class, so the endpoint returns garbage as
+     * soon as the query cache is warm. Resolving produces identical JSON and is
+     * cacheable.
+     *
      * @param  class-string<JsonResource>  $resource
      * @return array{list: mixed, pagination: array{total: int, current: int, page_size: int}}
      */
@@ -138,12 +160,6 @@ trait WebFilter
         }
 
         return [
-            // resolve() rather than the resource collection object.
-            //
-            // A JsonResource collection is not safely serialisable: caching one and
-            // reading it back produces __PHP_Incomplete_Class, so the list endpoint
-            // returns garbage as soon as the query cache is warm. Resolving here
-            // makes the value a plain array — identical JSON, and cacheable.
             'list' => $resource::collection($paginator->getCollection())->resolve(),
             'pagination' => [
                 'total' => $paginator->total(),

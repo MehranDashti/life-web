@@ -15,6 +15,11 @@ use App\Adapters\Contracts\Data\HistogramResult;
  */
 final readonly class GenerationResult
 {
+    /**
+     * Query time and wall-clock are carried separately from the start, because the
+     * task asks for both and reconstructing one from the other later loses the
+     * distinction.
+     */
     public function __construct(
         public HistogramResult $histogram,
         public int $queryTookMs,
@@ -25,11 +30,19 @@ final readonly class GenerationResult
         public int $peakMemoryBytes = 0,
     ) {}
 
+    /**
+     * Rows the workbook will hold — one per day in the window, including days with
+     * no matches. Not the number of documents matched.
+     */
     public function rows(): int
     {
         return count($this->histogram->buckets);
     }
 
+    /**
+     * Attach the exported workbook, folding its cost into the total while leaving
+     * the query time and the export time separately attributable.
+     */
     public function withFile(string $path, int $size, int $exportMs, int $peakMemoryBytes): self
     {
         return new self(

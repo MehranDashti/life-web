@@ -121,6 +121,10 @@ final class SyntheticPostFactory
         return $topics;
     }
 
+    /**
+     * Filler text drawn from the fixed vocabulary, so body length is controllable
+     * without making the corpus unsearchable.
+     */
     private function words(int $count): string
     {
         $words = [];

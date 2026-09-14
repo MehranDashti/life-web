@@ -38,17 +38,30 @@ final class HistogramExcelWriter
     private const HEADER_ROW = self::META_ROWS + 1;
 
     /**
-     * Gregorian dates are unreadable to the Persian audience this corpus serves,
-     * and Jalali alone would be awkward to cross-reference with the API. Both are
-     * written.
+     * Write a report's histogram to a workbook and return its path and size.
+     *
+     * Layout, in order: a metadata block naming the report, its keywords and its
+     * window — so a reviewer opening the file can tell what it is without consulting
+     * the database — then the column headers, then one row per day.
+     *
+     * Every day in the window is written, including days with no posts. Skipping
+     * them would undo the min_doc_count/extended_bounds care taken in the
+     * aggregation and silently compress the time axis.
+     *
+     * There is deliberately no blank separator row: openspout skips a row with no
+     * cell values, so a "spacer" would shift the header out of the frozen pane. The
+     * frozen row is derived from the layout constants rather than hard-coded, so
+     * adding a metadata row cannot break it.
+     *
+     * Dates are written in both calendars. Gregorian alone is unreadable to the
+     * Persian audience this corpus serves; Jalali alone would be awkward to
+     * cross-reference against the API.
      */
     public function write(Report $report, Carbon $from, Carbon $to, HistogramResult $histogram): WrittenFile
     {
         $disk = Storage::disk(self::DISK);
         $relativePath = $this->pathFor($report, $from, $to);
 
-        // openspout writes to a real filesystem path, so the directory has to
-        // exist even on the local driver.
         $disk->makeDirectory(dirname($relativePath));
         $absolutePath = $disk->path($relativePath);
 
@@ -58,11 +71,6 @@ final class HistogramExcelWriter
         $sheet = $writer->getCurrentSheet();
         $sheet->setName('histogram');
 
-        // Persian-first output: RTL, with the header frozen so a long window
-        // stays readable while scrolling.
-        // Freeze everything above the first data row, so a long window stays
-        // readable while scrolling. Derived from the layout constants rather than
-        // hard-coded, so adding a metadata row cannot silently break the freeze.
         $sheet->setSheetView(
             (new SheetView)->setRightToLeft(true)->setFreezeRow(self::HEADER_ROW + 1),
         );
@@ -71,8 +79,6 @@ final class HistogramExcelWriter
         $bold = (new Style)->setFontBold();
         $timezone = (string) config('search.histogram.timezone', 'Asia/Tehran');
 
-        // A reviewer opening the file must be able to tell which report it is and
-        // what window it covers, without consulting the database.
         $this->writeMeta($writer, $bold, trans('messages.report_sheet_title'), $report->name);
         $this->writeMeta($writer, $bold, trans('messages.report_sheet_keywords'), implode('، ', $report->keywords));
         $this->writeMeta($writer, $bold, trans('messages.report_sheet_period'), $report->period->label());
@@ -81,18 +87,12 @@ final class HistogramExcelWriter
         $this->writeMeta($writer, $bold, trans('messages.report_sheet_total'), (string) $histogram->total);
         $this->writeMeta($writer, $bold, trans('messages.report_sheet_generated_at'), $this->bothCalendars(Carbon::now(), $timezone));
 
-        // No blank separator row: openspout skips a row with no cell values, so a
-        // "spacer" would silently shift the header off the frozen pane. The bold
-        // header is the separation.
         $writer->addRow(Row::fromValues([
             trans('messages.report_sheet_date_gregorian'),
             trans('messages.report_sheet_date_jalali'),
             trans('messages.report_sheet_count'),
         ], $bold));
 
-        // Every day in the window, including zeros. Skipping empty days would
-        // undo the min_doc_count/extended_bounds care taken in the aggregation and
-        // silently compress the time axis.
         foreach ($histogram->buckets as $bucket) {
             $local = $bucket->date->copy()->timezone($timezone);
 
@@ -125,11 +125,17 @@ final class HistogramExcelWriter
         );
     }
 
+    /**
+     * One metadata row: a bold label against its value.
+     */
     private function writeMeta(Writer $writer, Style $bold, string $label, string $value): void
     {
         $writer->addRow(Row::fromValuesWithStyles([$label, $value], null, [1 => $bold]));
     }
 
+    /**
+     * A moment rendered in both calendars, localised to the report timezone.
+     */
     private function bothCalendars(Carbon $moment, string $timezone): string
     {
         $local = $moment->copy()->timezone($timezone);

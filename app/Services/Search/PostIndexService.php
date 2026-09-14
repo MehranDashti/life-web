@@ -28,6 +28,10 @@ final readonly class PostIndexService
      */
     private const int MAX_CHUNK_ATTEMPTS = 4;
 
+    /**
+     * All engine access goes through the adapter; this service only adds chunking,
+     * retry and reporting on top of it.
+     */
     public function __construct(private SearchAdapterInterface $search) {}
 
     /**
@@ -38,6 +42,12 @@ final readonly class PostIndexService
         $this->search->ensureIndex();
     }
 
+    /**
+     * Import a JSON array of posts from disk.
+     *
+     * The file is streamed rather than decoded whole, so a corpus larger than
+     * available memory still imports.
+     */
     public function importFile(string $path, ?int $chunkSize = null, bool $refresh = true, ?Closure $onChunk = null): ImportResult
     {
         if (! is_file($path)) {
@@ -52,6 +62,12 @@ final readonly class PostIndexService
         );
     }
 
+    /**
+     * Generate and index a deterministic synthetic corpus for the benchmark.
+     *
+     * Same seed, same documents — a benchmark that cannot be reproduced is an
+     * anecdote rather than a measurement.
+     */
     public function generateSynthetic(
         int $count,
         Carbon $from,
@@ -71,6 +87,12 @@ final readonly class PostIndexService
     }
 
     /**
+     * Index any stream of documents, chunked.
+     *
+     * Refreshes once at the end rather than once per chunk: a refresh per chunk is
+     * the standard reason a bulk import runs an order of magnitude slower than it
+     * should.
+     *
      * @param  iterable<int, array<string, mixed>>  $documents
      * @param  Closure(int, int): void|null  $onChunk  receives (documentsInChunk, chunkNumber)
      */
@@ -103,8 +125,6 @@ final readonly class PostIndexService
             $this->flushChunk($buffer, $indexed, $failed, $chunks, $errors, $maxErrors, $onChunk);
         }
 
-        // One refresh at the end, never one per chunk — a refresh per chunk is the
-        // standard reason a bulk import runs an order of magnitude slower than it should.
         if ($refresh) {
             $this->search->refresh();
         }
@@ -119,6 +139,13 @@ final readonly class PostIndexService
     }
 
     /**
+     * Index one chunk, retrying with exponential backoff (0.5s, 1s, 2s).
+     *
+     * The progress callback is invoked with __invoke, never Closure::call():
+     * rebinding $this to this service would break any callback that legitimately
+     * closes over its own object — a console command reaching for $this->components,
+     * for instance.
+     *
      * @param  array<int, array<string, mixed>>  $chunk
      * @param  array<int, string>  $errors
      * @param  Closure(int, int): void|null  $onChunk
@@ -146,7 +173,6 @@ final readonly class PostIndexService
                     throw $exception;
                 }
 
-                // Exponential backoff: 0.5s, 1s, 2s.
                 usleep(500_000 * 2 ** ($attempt - 1));
             }
         }
@@ -160,9 +186,6 @@ final readonly class PostIndexService
             }
         }
 
-        // __invoke, never Closure::call(): rebinding $this to this service breaks
-        // any callback that legitimately closes over its own object (a command
-        // reaching for $this->components, for instance).
         $onChunk?->__invoke(count($chunk), $chunks);
     }
 }

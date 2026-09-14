@@ -21,6 +21,10 @@ abstract class BaseService implements BaseDatabaseServiceInterface, BaseServiceI
 {
     use BaseServiceTrait;
 
+    /**
+     * Every service takes exactly one repository, and picks up a mediator
+     * automatically when the domain declares it has guards to enforce.
+     */
     public function __construct(protected BaseRepositoryInterface $repository)
     {
         if ($this instanceof HasMediatorInterface) {
@@ -36,6 +40,12 @@ abstract class BaseService implements BaseDatabaseServiceInterface, BaseServiceI
         return new $resourceNameSpace($model);
     }
 
+    /**
+     * Apply a DTO's persistence payload to an existing record.
+     *
+     * The model is passed to the DTO so it can decide what to write based on the
+     * record's current state.
+     */
     public function update(Model $model, ToArrayDTOInterface $dto): Model
     {
         $this->repository->update($model, $dto->toArray($model));

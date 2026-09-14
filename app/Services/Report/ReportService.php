@@ -35,6 +35,10 @@ final class ReportService extends BaseService implements DataServiceInterface, H
 
     private const string CACHE_TAG = 'reports';
 
+    /**
+     * Two repositories: subscriptions through the base contract, and runs
+     * separately, because listing a report's history is a read of a different table.
+     */
     public function __construct(
         ReportRepositoryInterface $repository,
         private readonly ReportRunRepositoryInterface $runs,
@@ -42,17 +46,23 @@ final class ReportService extends BaseService implements DataServiceInterface, H
         parent::__construct($repository);
     }
 
+    /**
+     * The domain's guard object, resolved by BaseService at construction.
+     */
     public function mediatorClass(): BaseMediatorInterface
     {
         return app(ReportMediator::class);
     }
 
+    /**
+     * Persist a new subscription and invalidate the owner's cached list, so their
+     * next read reflects it immediately rather than after the TTL.
+     */
     public function createReport(CreateReportDTO $dto): Report
     {
         /** @var Report $report */
         $report = $this->repository->create($dto->toArray());
 
-        // The owner's cached list must reflect the new report immediately.
         $this->flushQueryCache(self::CACHE_TAG);
 
         return $report;
@@ -121,6 +131,12 @@ final class ReportService extends BaseService implements DataServiceInterface, H
         return $run;
     }
 
+    /**
+     * Resolve a run the caller owns that actually produced a file.
+     *
+     * Ownership and existence are checked before the artifact, so a run belonging to
+     * someone else is refused rather than probed for a file.
+     */
     public function getDownloadableRun(Report $report, ReportRun $run, User $user): ReportRun
     {
         $this->getOwnedRun($report, $run, $user);
@@ -129,6 +145,10 @@ final class ReportService extends BaseService implements DataServiceInterface, H
         return $run;
     }
 
+    /**
+     * The domain's guards, narrowed from the base contract so the report-specific
+     * assertions are reachable without a cast at every call site.
+     */
     private function reportMediator(): ReportMediator
     {
         /** @var ReportMediator $mediator */

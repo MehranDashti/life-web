@@ -15,5 +15,8 @@ interface BaseDatabaseServiceInterface
      */
     public function getView(Model $model, string $resourceNameSpace): JsonResource;
 
+    /**
+     * Apply a DTO's persistence payload to an existing record.
+     */
     public function update(Model $model, ToArrayDTOInterface $dto): Model;
 }

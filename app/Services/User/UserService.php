@@ -24,6 +24,9 @@ final class UserService extends BaseService
 {
     private const string TOKEN_NAME = 'api';
 
+    /**
+     * Bound to the user repository; everything generic comes from BaseService.
+     */
     public function __construct(UserRepositoryInterface $repository)
     {
         parent::__construct($repository);
@@ -79,20 +82,25 @@ final class UserService extends BaseService
     /**
      * Revoke only the token that made this request, so signing out on one device
      * does not sign the user out everywhere.
+     *
+     * currentAccessToken() is typed as ScopeAuthorizable, which declares no
+     * revoke(). Under the passport guard the concrete object is an AccessToken built
+     * from the request — not the Token model — and that is what carries revoke(). A
+     * TransientToken, from session authentication, has nothing to revoke.
      */
     public function revokeCurrentToken(User $user): void
     {
         $token = $user->currentAccessToken();
 
-        // currentAccessToken() is typed as ScopeAuthorizable, which declares no
-        // revoke(). Under the passport guard the concrete object is an AccessToken
-        // built from the request — NOT the Token model — and that is what carries
-        // revoke(). A TransientToken (session-authenticated) has nothing to revoke.
         if ($token instanceof AccessToken) {
             $token->revoke();
         }
     }
 
+    /**
+     * The injected repository, narrowed from the base contract so the user-specific
+     * queries are reachable without a cast at every call site.
+     */
     private function userRepository(): UserRepositoryInterface
     {
         /** @var UserRepositoryInterface $repository */

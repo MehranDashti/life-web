@@ -24,11 +24,18 @@ trait BaseServiceTrait
         return $this;
     }
 
+    /**
+     * Whether guard checks are currently being skipped.
+     */
     public function getIgnoreMediator(): bool
     {
         return $this->ignoreMediator;
     }
 
+    /**
+     * The domain's guard object, or a clear failure if the service never declared
+     * one — a missing mediator is a wiring mistake, not a runtime condition.
+     */
     public function getMediator(): BaseMediatorInterface
     {
         if (! $this->mediator instanceof BaseMediatorInterface) {
@@ -38,6 +45,9 @@ trait BaseServiceTrait
         return $this->mediator;
     }
 
+    /**
+     * Page size used when the request does not specify one.
+     */
     public function getServicePaginate(): int
     {
         return 15;
