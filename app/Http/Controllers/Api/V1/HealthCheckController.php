@@ -21,6 +21,14 @@ use App\Adapters\Contracts\SearchAdapterInterface;
  */
 class HealthCheckController extends Controller
 {
+    /**
+     * Probe every dependency and report them separately.
+     *
+     * Only the database is treated as a hard dependency: the API can still serve
+     * reads when Elasticsearch is down, so a search outage reports `degraded: false`
+     * against that one check rather than failing the whole probe and taking the
+     * container out of rotation.
+     */
     public function __invoke(SearchAdapterInterface $search): JsonResponse
     {
         $checks = [
@@ -37,7 +45,6 @@ class HealthCheckController extends Controller
             'search' => $this->probe(static fn (): bool => $search->ping()),
         ];
 
-        // The database is the only hard dependency — without it nothing works.
         $healthy = $checks['database'];
 
         return $this->successResponse(

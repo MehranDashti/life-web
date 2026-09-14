@@ -16,6 +16,10 @@ use App\Http\Resources\User\UserResource;
 
 class AuthController extends Controller
 {
+    /**
+     * One service per controller: the controller's only job is to translate between
+     * HTTP and the domain.
+     */
     public function __construct(private readonly UserService $service) {}
 
     /**
@@ -66,6 +70,12 @@ class AuthController extends Controller
         }
     }
 
+    /**
+     * The caller, resolved through the api guard.
+     *
+     * Always the api guard, never the bare Auth facade — the default guard is still
+     * `web`, which would silently return null on every request.
+     */
     private function currentUser(): User
     {
         /** @var User $user */

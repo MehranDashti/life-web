@@ -24,6 +24,10 @@ use Mehrand\ApiResponse\Responses\SuccessResponse;
  */
 abstract class Controller
 {
+    /**
+     * The standard success envelope. `$data` is whatever the endpoint returns —
+     * a resource, a list payload, or an empty array for an action with no body.
+     */
     protected function successResponse(string $message, mixed $data = []): JsonResponse
     {
         return (new SuccessResponse)

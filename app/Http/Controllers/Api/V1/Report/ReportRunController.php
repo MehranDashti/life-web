@@ -30,6 +30,10 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class ReportRunController extends Controller
 {
+    /**
+     * One service per controller: the controller's only job is to translate between
+     * HTTP and the domain.
+     */
     public function __construct(private readonly ReportService $service) {}
 
     /**
@@ -106,6 +110,12 @@ class ReportRunController extends Controller
     }
 
     /**
+     * The window a run should cover.
+     *
+     * With no explicit `from`/`to` this returns exactly what the scheduler would
+     * have used, so an on-demand run and a scheduled one produce the same window
+     * and therefore collide on the same idempotency claim.
+     *
      * @return array{0: Carbon, 1: Carbon}
      */
     private function resolveWindow(Report $report, RunReportRequest $request): array
@@ -119,12 +129,17 @@ class ReportRunController extends Controller
             ];
         }
 
-        // No explicit window: use exactly what the scheduler would have used.
         $now = Carbon::now();
 
         return [$report->period->windowStart($now), $report->period->windowEnd($now)];
     }
 
+    /**
+     * A human-readable filename for the download.
+     *
+     * The stored path is opaque and namespaced by report id; this is what the user
+     * actually sees in their downloads folder.
+     */
     private function downloadName(Report $report, ReportRun $run): string
     {
         return sprintf(
@@ -135,6 +150,12 @@ class ReportRunController extends Controller
         );
     }
 
+    /**
+     * The caller, resolved through the api guard.
+     *
+     * Always the api guard, never the bare Auth facade — the default guard is still
+     * `web`, which would silently return null on every request.
+     */
     private function currentUser(): User
     {
         /** @var User $user */

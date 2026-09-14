@@ -19,10 +19,18 @@ use App\Http\Requests\Report\CreateReportRequest;
 
 class ReportController extends Controller
 {
+    /**
+     * One service per controller: the controller's only job is to translate between
+     * HTTP and the domain.
+     */
     public function __construct(private readonly ReportService $service) {}
 
     /**
      * The caller's own report subscriptions, filtered and paginated.
+     *
+     * Ownership is passed as a server-side condition, which no query parameter can
+     * reach — client filters narrow within the caller's rows and can never widen
+     * the set.
      */
     public function index(ReportFilter $filter): JsonResponse
     {
@@ -31,12 +39,17 @@ class ReportController extends Controller
             $this->service->getFilter(
                 filter: $filter,
                 resource: ReportResource::class,
-                // Ownership is a server-side condition; no query parameter reaches it.
                 conditions: ['user_id' => $this->currentUser()->getKey()],
             ),
         );
     }
 
+    /**
+     * Create a report subscription for the caller.
+     *
+     * Wrapped in a transaction because creating a report also writes its schedule;
+     * a half-created subscription would be dispatched with no next run.
+     */
     public function create(CreateReportRequest $request): JsonResponse
     {
         DB::beginTransaction();
@@ -58,6 +71,12 @@ class ReportController extends Controller
         }
     }
 
+    /**
+     * Read one report the caller owns.
+     *
+     * Route-model binding resolves the record; ownership is checked in the service,
+     * so an id belonging to someone else is a 403 rather than a leak.
+     */
     public function view(Report $report): JsonResponse
     {
         try {
@@ -70,6 +89,12 @@ class ReportController extends Controller
         }
     }
 
+    /**
+     * The caller, resolved through the api guard.
+     *
+     * Always the api guard, never the bare Auth facade — the default guard is still
+     * `web`, which would silently return null on every request.
+     */
     private function currentUser(): User
     {
         /** @var User $user */
