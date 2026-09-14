@@ -40,6 +40,20 @@ return [
             'report' => false,
         ],
 
+        /*
+         | Generated report workbooks. Kept on their own disk rather than under
+         | `local` so retention and storage backend are a configuration change:
+         | set REPORT_DISK_DRIVER=s3 (plus the AWS_* keys) and nothing in the
+         | application has to know. The value is a filesystem DRIVER, not a disk
+         | name — `local` or `s3`.
+         */
+        'reports' => [
+            'driver' => env('REPORT_DISK_DRIVER', 'local'),
+            'root' => storage_path('app/reports'),
+            'throw' => true,
+            'serve' => false,
+        ],
+
         'public' => [
             'driver' => 'local',
             'root' => storage_path('app/public'),
