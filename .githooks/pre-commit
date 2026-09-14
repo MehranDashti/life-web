@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Style + static analysis on staged PHP files only, so the hook stays fast.
+# Install with `make hooks`. Bypass with `git commit --no-verify` (don't).
+set -euo pipefail
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR -- '*.php')
+[ -z "$staged" ] && exit 0
+
+echo "[pre-commit] pint"
+# shellcheck disable=SC2086
+vendor/bin/pint --test $staged
+
+echo "[pre-commit] phpstan"
+vendor/bin/phpstan analyse --memory-limit=1G --no-progress
+
+echo "[pre-commit] ok"

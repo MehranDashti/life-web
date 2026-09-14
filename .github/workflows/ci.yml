@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Style, static analysis, tests
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: lifeweb_testing
+          MYSQL_ROOT_PASSWORD: root
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=10s --health-timeout=5s --health-retries=15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_mysql, bcmath, zip, gd, intl
+          coverage: none
+          tools: composer:v2
+
+      # The two mehrand/* packages are private VCS repos reached over SSH.
+      - name: Configure SSH for private composer repositories
+        env:
+          COMPOSER_SSH_KEY: ${{ secrets.COMPOSER_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$COMPOSER_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache
+          key: composer-${{ hashFiles('composer.lock') }}
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Validate composer.json
+        run: composer validate --strict --no-check-publish
+
+      - name: Prepare environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+          php artisan passport:keys --force
+
+      - name: Code style
+        run: vendor/bin/pint --test
+
+      - name: Static analysis
+        run: vendor/bin/phpstan analyse --memory-limit=1G --no-progress
+
+      - name: Rector (report only)
+        run: vendor/bin/rector process --dry-run --no-progress-bar
+
+      # Unit + Feature only. The Integration suite needs a live Elasticsearch and
+      # is run deliberately, not on every push.
+      - name: Tests
+        env:
+          DB_HOST: 127.0.0.1
+          DB_DATABASE: lifeweb_testing
+          DB_USERNAME: root
+          DB_PASSWORD: root
+        run: php artisan test --testsuite=Unit --testsuite=Feature

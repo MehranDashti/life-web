@@ -1,0 +1,18 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    level: 6
+
+    paths:
+        - app
+        - config
+        - database
+        - routes
+        - tests
+
+    # Larastan needs the app booted to know model properties and container bindings.
+    checkModelProperties: true
+
+    excludePaths:
+        - bootstrap/cache/*
