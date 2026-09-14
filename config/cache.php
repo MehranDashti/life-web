@@ -21,6 +21,18 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Query Cache
+    |--------------------------------------------------------------------------
+    |
+    | Master switch for the QueryCacheable trait used by list endpoints. Off in
+    | the test environment, so a stale read can never mask a real assertion.
+    |
+    */
+
+    'query_cache_enabled' => (bool) env('QUERY_CACHE_ENABLED', true),
+
+    /*
+    |--------------------------------------------------------------------------
     | Cache Stores
     |--------------------------------------------------------------------------
     |
