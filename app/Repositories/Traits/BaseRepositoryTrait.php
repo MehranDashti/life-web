@@ -119,7 +119,14 @@ trait BaseRepositoryTrait
 
     public function getLatestRecord(string $column = 'created_at'): ?Model
     {
-        return $this->newQuery()->latest($column)->first();
+        // Timestamps have second resolution, so two rows written in the same second
+        // tie and the winner is whatever the storage engine returns first. The
+        // primary key breaks the tie deterministically: models use UUIDv7, which is
+        // time-ordered, so the newest key is also the newest row.
+        return $this->newQuery()
+            ->latest($column)
+            ->orderByDesc($this->model->getKeyName())
+            ->first();
     }
 
     public function updateAttribute(Model $model, string $attribute, mixed $value): Model
