@@ -239,6 +239,42 @@ fails loudly instead of creating an unanalysed field.
 Keyword and date-range clauses go in `bool.filter`, never `must` — filter clauses
 skip scoring and are cacheable, and a histogram has no use for relevance.
 
+### Caching
+
+**This reduces load on Elasticsearch, not latency.** The benchmark below measures the
+aggregation at 1–2 ms flat from 10k to 1M documents, so there is no single-request
+speed-up to be had. What there is: search is only reached during report generation,
+so load concentrates entirely on the scheduler tick — and many due reports issue
+*identical* aggregations, because different users track overlapping keywords over the
+same window.
+
+`CachedSearchAdapter` is a decorator over `SearchAdapterInterface`, keyed by
+`HistogramQuery::signature()`. Measured against Elasticsearch's own `query_total`
+counter:
+
+| | Identical queries issued | Aggregations reaching the engine |
+|---|---:|---:|
+| Cache on | 50 | **1** |
+| Cache off | 50 | 50 |
+
+Three decisions are load-bearing:
+
+- **Version-stamped keys, not tag flushing.** Every write to the index increments one
+  integer that forms part of the key, so a re-import invalidates everything at once in
+  constant time. Tag flushing would mean tracking and deleting every key on every import.
+- **Primitives, never object graphs.** The payload is plain arrays, rehydrated on read.
+  This project already shipped one bug from caching a rich object — a `JsonResource`
+  collection came back as `__PHP_Incomplete_Class` and the list endpoint served garbage.
+- **A cache never fails a request.** Any store failure falls through to Elasticsearch.
+  A Redis outage slows the system down; it does not break it.
+
+A cache hit reports `query_took_ms` of 0, because no engine time was spent — which makes
+the collapse visible in `report_runs` rather than only in a test.
+
+Redis also backs the rate limiter and the queue's unique-job lock. Both must be shared
+across application instances: with a per-process store, N containers keep N rate-limit
+buckets and a caller's real limit becomes N×the configured one.
+
 ### Idempotency
 
 `report_runs` carries `unique(report_id, period_start, period_end)`. The job claims
@@ -291,8 +327,10 @@ Where the next bottleneck appears, in order:
    already partition the data, so this is adding data nodes and raising
    `number_of_shards` for new months — no application change.
 3. **A thundering herd on the scheduler tick.** All daily reports become due at the
-   same instant. Already mitigated by jittering the enqueue delay across a window;
-   at much larger scale the dispatch itself would be sharded by report id.
+   same instant. Mitigated twice over: the enqueue is jittered across a window, and
+   identical aggregations are collapsed by the search cache — measured at 50 identical
+   queries costing 1 aggregation. At much larger scale the dispatch itself would be
+   sharded by report id.
 
 What is *not* a bottleneck, per the measurements below: the aggregation query. It
 costs 1–2 ms whether the corpus holds 10,000 or 1,000,000 documents.
@@ -405,6 +443,12 @@ in `loadtest/results/`.
 #### Elasticsearch query time vs. corpus size
 
 30-day window, keyword `تهران` (~30% selectivity), 20 measured iterations per size.
+
+These numbers are the **engine**, measured with the search cache bypassed. `bench:search`
+unwraps `CachedSearchAdapter` deliberately: it issues the same query on every iteration,
+so measuring through the cache would report the warm-up pass and then 19 cache hits — a
+number that describes Redis while claiming to describe Elasticsearch. The cache's own
+effect is measured separately, by `--herd` (see [Caching](#caching)).
 
 | Documents | Index size | Matched | Engine avg | Engine p95 | Engine p99 | Wall avg | Wall p95 | Wall p99 | Index rate |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -577,7 +621,7 @@ make index             # import data.json into Elasticsearch
 make synthetic N=100000   # generate a synthetic corpus for benchmarking
 
 # tests
-make test              # unit + feature; no infrastructure required
+make test              # unit + feature; needs the database from `make up`
 make integration       # needs a live Elasticsearch
 make ci                # the full gate — run before every push
 
