@@ -22,6 +22,7 @@ This implements the LifeWeb backend technical assessment (`task.pdf`).
   - [3. User-selectable delivery channels](#3-user-selectable-delivery-channels)
   - [4. Benchmark results](#4-benchmark-results)
 - [Scope decisions](#scope-decisions)
+- [Production readiness](#production-readiness)
 - [Development](#development)
 
 ---
@@ -601,6 +602,95 @@ does not build them — and says so rather than leaving the omission to be guess
 - **Missed windows are not backfilled.** A report that was down for three days
   resumes from the next boundary rather than replaying what it missed. Backfill is
   an explicit non-goal; the run history makes the gap visible.
+
+---
+
+## Production readiness
+
+**What ships here is a single-host deployment.** `app`, `queue` and `scheduler` are the
+same image with different commands, and all three bind-mount `./storage` from the host.
+That shared filesystem is load-bearing: it is why per-container Passport keys happen to
+match, and why a workbook written by `queue` is readable by `app`.
+
+Running on more than one host removes it. This section states what changed to make that
+safe, and what a real deployment would still need that this project deliberately does not
+build.
+
+### Changed, because it was broken
+
+- **Migrations run in one place.** Every container's entrypoint used to run
+  `migrate --force`, so replicas raced the same schema at boot. Migrating is now opt-in
+  via `APP_RUN_MIGRATIONS`, default **off**, and runs through `migrate:locked`, which
+  holds a MySQL named lock for the duration. A named lock is held by the *session*, so an
+  instance killed mid-migration drops it when its connection dies — no stale lock to
+  reap, and a crashed deploy cannot wedge the next one. Containers that do not migrate
+  wait for the schema instead of crash-looping against an absent one. Seeding the
+  personal access client moved behind the same gate, for the same reason.
+- **Passport keys are injected, never generated.** `passport:keys` wrote a keypair per
+  container. With a shared volume they collided harmlessly; without one, each instance
+  signs with different keys and a token issued by one is rejected by the next —
+  intermittent 401s that depend on which instance answered. In production the entrypoint
+  now **refuses to start** unless `PASSPORT_PRIVATE_KEY` and `PASSPORT_PUBLIC_KEY` are
+  supplied.
+- **The reports disk can actually be object storage.** `config/filesystems.php` promised
+  `REPORT_DISK_DRIVER=s3` worked while declaring no `key`, `secret`, `region` or
+  `bucket` — so it could not. The application was already correct: both
+  `HistogramExcelWriter` and the download controller go through `Storage::disk('reports')`
+  and persist a disk-relative path. Only the configuration lied, and
+  `ReportsDiskConfigTest` now asserts the disk carries every key the driver needs.
+- **Logs go to stderr at `info`.** They were written to a file inside the container at
+  `debug`, where no orchestrator collects them and nothing bounds their growth.
+- **The image no longer carries a `.env`.** The developer's file — real `APP_KEY`
+  and database credentials — was baked into every layer, because `.dockerignore`
+  never excluded it. Besides shipping secrets, it defeated the guard below: a
+  production container found that file, read `APP_ENV=local` from it, and booted on
+  the developer's configuration instead of refusing. Containers now start from
+  `.env.example` plus injected environment variables.
+- **A misconfigured production container fails loudly.** It used to copy `.env.example`
+  and generate its own `APP_KEY`. With `APP_ENV=production` and no mounted config or key,
+  it now exits non-zero. This trades availability for correctness on purpose: one obvious
+  failure at deploy time beats a fleet quietly serving wrong behaviour.
+
+### Deployment changes this requires
+
+- **`APP_RUN_MIGRATIONS=true` must be set on exactly one service.** `docker-compose.yml`
+  sets it on a one-shot `migrate` service that the others wait for with
+  `service_completed_successfully`; in Kubernetes the same flag makes an init Job the
+  migrator. Set nowhere, nothing migrates and every container reports that as the reason
+  it is waiting.
+- **Production needs `PASSPORT_PRIVATE_KEY` / `PASSPORT_PUBLIC_KEY` before first deploy.**
+  Read the existing `storage/oauth-*.key` files into those secrets and tokens already
+  issued stay valid. Skip it and the container will not start.
+
+### Not built, and why
+
+These are real gaps. Inventing a retention policy or a metrics stack for a one-week
+assessment is scope creep, so they are named rather than guessed at.
+
+- **Retention.** Nothing prunes anything: Elasticsearch monthly indices, `report_runs`
+  rows and stored workbooks all grow without bound. This is the item that actually breaks
+  first — around twelve months in. The architecture already makes it cheap: retention is
+  dropping an index rather than a delete-by-query, and workbooks are keyed by report so a
+  bucket lifecycle rule (`AWS_REPORTS_BUCKET`) can expire them without touching anything
+  else. Choosing the horizon is a product decision.
+- **Elasticsearch durability and transport security.** `number_of_replicas` is `0`, so
+  losing a node loses data and reds the cluster — correct for a benchmark on one machine,
+  wrong anywhere else. The Compose node also runs with security disabled; production needs
+  authentication and TLS, which `config/search.php` already has the settings for.
+- **Redis topology.** Cache and queue share one instance on separate databases. That is
+  fine until memory pressure: `maxmemory-policy` is instance-wide, so an eviction policy
+  right for a cache will silently discard queued jobs, and no policy at all means an OOM
+  kill takes the broker with the cache. They should be two instances — the queue with
+  persistence and `noeviction`, the cache with `allkeys-lru`.
+- **Observability.** `/api/v1/up` reports each dependency separately, which is the right
+  shape, but there is nothing to alert *on*. The signals worth exporting are queue depth,
+  `report_runs` failure rate, dispatch-to-completion latency, and Elasticsearch query
+  time — plus a correlation ID threaded from request through job so one report's history
+  is greppable.
+- **Token lifetime.** No expiry is configured for personal access tokens, so a leaked
+  token is valid indefinitely. `Passport::personalAccessTokensExpireIn()` is the one-line
+  fix; it is not set because the task waives authorization concerns and a short expiry
+  would make the Postman collection harder to use.
 
 ---
 
