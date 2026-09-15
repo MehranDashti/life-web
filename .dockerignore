@@ -15,6 +15,14 @@ storage/framework/testing/*
 # permission error.
 storage/app/reports/*
 loadtest/results/*
+# The developer's .env must never be baked into the image: it ships a real APP_KEY
+# and database credentials in a layer, and — worse — it defeats the production
+# config guard in docker/entrypoint.sh, which refuses to boot when no .env is
+# mounted. A baked .env means that guard finds a file, sees APP_ENV=local, and
+# starts on the developer's configuration instead of failing. .env.example is
+# still copied in and is what a local container boots from.
+.env
+!.env.example
 openspec
 *.md
 !README.md
