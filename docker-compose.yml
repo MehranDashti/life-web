@@ -1,5 +1,21 @@
 name: lifeweb
 
+x-app-env: &app-env
+  # .env holds HOST-side values so Artisan can be run from the developer's machine
+  # against the forwarded ports. Inside the network the service names and their
+  # native ports apply, so both host and port must be overridden — overriding only
+  # the host leaves the container dialling mysql:33306, which does not exist.
+  DB_HOST: mysql
+  DB_PORT: 3306
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+  CACHE_STORE: redis
+  QUEUE_CONNECTION: redis
+  # The image installs the phpredis extension, which is materially faster than
+  # predis. The host has no such extension, which is why .env keeps predis.
+  REDIS_CLIENT: phpredis
+
 x-app: &app
   build:
     context: .
@@ -11,21 +27,7 @@ x-app: &app
       - default
   image: lifeweb-api:local
   env_file: .env
-  environment:
-    # .env holds HOST-side values so Artisan can be run from the developer's machine
-    # against the forwarded ports. Inside the network the service names and their
-    # native ports apply, so both host and port must be overridden — overriding only
-    # the host leaves the container dialling mysql:33306, which does not exist.
-    DB_HOST: mysql
-    DB_PORT: 3306
-    REDIS_HOST: redis
-    REDIS_PORT: 6379
-    ELASTICSEARCH_HOSTS: http://elasticsearch:9200
-    CACHE_STORE: redis
-    QUEUE_CONNECTION: redis
-    # The image installs the phpredis extension, which is materially faster than
-    # predis. The host has no such extension, which is why .env keeps predis.
-    REDIS_CLIENT: phpredis
+  environment: *app-env
   volumes:
     - ./storage:/app/storage
   depends_on:
@@ -35,9 +37,30 @@ x-app: &app
   restart: unless-stopped
 
 services:
+  # Migrations run here and nowhere else. Every other service waits for this one to
+  # exit 0, so a deploy migrates exactly once no matter how many replicas start.
+  # `migrate:locked` still takes a database lock, because in Kubernetes the ordering
+  # guarantee is an init Job rather than this dependency.
+  migrate:
+    <<: *app
+    container_name: lifeweb-migrate
+    environment:
+      <<: *app-env
+      APP_RUN_MIGRATIONS: "true"
+    command: ["true"]
+    ports: []
+    # One-shot: without this the inherited `unless-stopped` restarts it forever.
+    restart: "no"
+    healthcheck:
+      disable: true
+
   app:
     <<: *app
     container_name: lifeweb-app
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
     ports:
       - "${APP_PORT:-9900}:8080"
     healthcheck:
@@ -53,6 +76,10 @@ services:
   queue:
     <<: *app
     container_name: lifeweb-queue
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
     command: ["php", "artisan", "queue:work", "--queue=reports,default", "--tries=3", "--backoff=10,60,300", "--max-time=3600"]
     ports: []
     healthcheck:
@@ -63,6 +90,10 @@ services:
   scheduler:
     <<: *app
     container_name: lifeweb-scheduler
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
     command: ["php", "artisan", "schedule:work"]
     ports: []
     healthcheck:
