@@ -132,6 +132,19 @@ return [
     'migrations' => [
         'table' => 'migrations',
         'update_date_on_publish' => true,
+
+        /*
+         | Serialises `migrate:locked` so that starting any number of instances
+         | concurrently still migrates exactly once. A MySQL named lock is held by
+         | the session, so an instance killed mid-migration drops it when its
+         | connection dies -- no stale lock to reap, and a crashed deploy cannot
+         | wedge the next one. The wait must exceed the longest expected migration
+         | run, or a waiting instance gives up while the migrator is still working.
+         */
+        'lock' => [
+            'name' => env('MIGRATION_LOCK_NAME', 'lifeweb:migrate'),
+            'timeout' => (int) env('MIGRATION_LOCK_TIMEOUT', 120),
+        ],
     ],
 
     /*
