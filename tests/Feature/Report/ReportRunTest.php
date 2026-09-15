@@ -85,6 +85,19 @@ class ReportRunTest extends TestCase
         $this->assertStringContainsString('.xlsx', (string) $response->headers->get('content-disposition'));
     }
 
+    public function test_a_run_stores_a_disk_relative_path_so_any_instance_can_serve_it(): void
+    {
+        $this->postJson("/api/v1/reports/{$this->report->id}/run", [
+            'from' => '2024-12-18', 'to' => '2024-12-19',
+        ])->assertOk();
+
+        $path = (string) $this->report->runs()->firstOrFail()->file_path;
+
+        $this->assertStringNotContainsString(storage_path(), $path);
+        $this->assertFalse(str_starts_with($path, '/'), "Stored an absolute path: {$path}");
+        $this->assertTrue(Storage::disk('reports')->exists($path));
+    }
+
     public function test_downloading_a_run_with_no_file_is_a_404(): void
     {
         $run = $this->report->runs()->create($this->runAttributes('2024-12-18'));

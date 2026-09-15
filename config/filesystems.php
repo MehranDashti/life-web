@@ -42,14 +42,31 @@ return [
 
         /*
          | Generated report workbooks. Kept on their own disk rather than under
-         | `local` so retention and storage backend are a configuration change:
-         | set REPORT_DISK_DRIVER=s3 (plus the AWS_* keys) and nothing in the
-         | application has to know. The value is a filesystem DRIVER, not a disk
-         | name — `local` or `s3`.
+         | `local` so that the storage backend is a configuration change: set
+         | REPORT_DISK_DRIVER=s3 and the AWS_* keys, and nothing in the application
+         | has to know. The value is a filesystem DRIVER, not a disk name.
+         |
+         | The credential entries below are what make that claim true. They are
+         | inert under the `local` driver and required under `s3`; declaring only
+         | `driver` and `root` — as this disk originally did — means selecting `s3`
+         | resolves a disk with no bucket and no credentials, so the switch the
+         | comment promised could never actually work.
+         |
+         | This matters beyond configuration tidiness: on a deployment where the
+         | instance serving a download is not the instance that generated the file,
+         | a local disk means the download 404s depending on who answers. Object
+         | storage is what makes report generation independent of which container
+         | ran it.
          */
         'reports' => [
             'driver' => env('REPORT_DISK_DRIVER', 'local'),
             'root' => storage_path('app/reports'),
+            'key' => env('AWS_ACCESS_KEY_ID'),
+            'secret' => env('AWS_SECRET_ACCESS_KEY'),
+            'region' => env('AWS_DEFAULT_REGION'),
+            'bucket' => env('AWS_REPORTS_BUCKET', env('AWS_BUCKET')),
+            'endpoint' => env('AWS_ENDPOINT'),
+            'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', false),
             'throw' => true,
             'serve' => false,
         ],
