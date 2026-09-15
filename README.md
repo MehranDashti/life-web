@@ -41,7 +41,8 @@ curl http://localhost:9900/api/v1/up
 ```
 
 `make fresh` also runs `PostSeeder`, which creates the Elasticsearch index template
-and imports the 21 posts in `data.json`. If Elasticsearch is not up yet the seeder
+and imports the 21 posts in `database/seeders/data/data.json`. If Elasticsearch is
+not up yet the seeder
 logs a warning and skips rather than failing — run `make index` once it is.
 
 Demo credentials: **`demo` / `password`**
@@ -810,9 +811,14 @@ app/
   Repositories/    Contracts/ (interfaces) + implementations
   Services/        Report/, Search/, Contracts/, Traits/
   Support/         JsonArrayStreamReader
+database/
+  migrations/      schema
+  factories/       test fixtures
+  seeders/
+    data/
+      data.json    the supplied corpus: 21 Persian news posts
 docker/            Dockerfile, entrypoint, supervisord, php.ini
 loadtest/          k6 scenarios and committed raw results
 postman/           collection + environment
 CLAUDE.md          architecture, conventions and the spec-driven workflow
-data.json          the supplied corpus: 21 Persian news posts
 ```

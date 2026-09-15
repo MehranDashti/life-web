@@ -150,7 +150,7 @@ class PostIndexTest extends IntegrationTestCase
 
     private function importCorpus(): void
     {
-        $this->app->make(PostIndexService::class)->importFile(base_path('data.json'));
+        $this->app->make(PostIndexService::class)->importFile(base_path('database/seeders/data/data.json'));
     }
 
     private function histogramTotal(string $keyword): int

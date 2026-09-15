@@ -24,7 +24,7 @@ use App\Adapters\Contracts\SearchAdapterInterface;
  */
 class PostSeeder extends Seeder
 {
-    public const CORPUS = 'data.json';
+    public const CORPUS = 'database/seeders/data/data.json';
 
     public function run(): void
     {

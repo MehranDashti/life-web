@@ -140,7 +140,7 @@ class JsonArrayStreamReaderTest extends TestCase
 
     public function test_it_reads_the_projects_real_corpus(): void
     {
-        $elements = iterator_to_array((new JsonArrayStreamReader(base_path('data.json')))->elements());
+        $elements = iterator_to_array((new JsonArrayStreamReader(base_path('database/seeders/data/data.json')))->elements());
 
         $this->assertCount(21, $elements);
         $this->assertArrayHasKey('published_at', $elements[0]);

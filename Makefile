@@ -52,7 +52,7 @@ seed: ## Seed the demo user
 	$(APP) php artisan db:seed --force
 
 index: ## Create the posts index template and import data.json
-	$(APP) php artisan posts:index data.json
+	$(APP) php artisan posts:index
 
 synthetic: ## Generate N synthetic posts for the benchmark (make synthetic N=100000)
 	$(APP) php artisan posts:synthetic $(or $(N),10000)

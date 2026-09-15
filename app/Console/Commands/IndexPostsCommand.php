@@ -12,7 +12,7 @@ use App\Adapters\Contracts\SearchAdapterInterface;
 class IndexPostsCommand extends Command
 {
     protected $signature = 'posts:index
-        {file=data.json : Path to a JSON array of posts, relative to the project root}
+        {file=database/seeders/data/data.json : Path to a JSON array of posts, relative to the project root}
         {--chunk= : Documents per bulk request (defaults to search.elasticsearch.chunk_size)}
         {--no-refresh : Skip the final refresh; the documents will not be searchable until one happens}';
 
